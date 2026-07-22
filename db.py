@@ -39,7 +39,10 @@ def init_db():
             CREATE TABLE IF NOT EXISTS stock (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 product_id INTEGER NOT NULL REFERENCES products(id),
-                code TEXT NOT NULL,
+                login TEXT,
+                senha TEXT,
+                validade TEXT,
+                perfil TEXT,
                 is_sold INTEGER NOT NULL DEFAULT 0,
                 sold_to INTEGER,
                 sold_at TEXT
@@ -64,6 +67,15 @@ def init_db():
             );
             """
         )
+        _migrate_stock_table(conn)
+
+
+def _migrate_stock_table(conn):
+    """Adiciona as novas colunas em bancos criados antes desta versão (schema antigo com 'code')."""
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(stock)").fetchall()}
+    for column in ("login", "senha", "validade", "perfil"):
+        if column not in existing:
+            conn.execute(f"ALTER TABLE stock ADD COLUMN {column} TEXT")
 
 
 # ---------- Usuários ----------
@@ -150,39 +162,42 @@ def get_available_count(product_id: int) -> int:
         return row["c"]
 
 
-def peek_available_code(product_id: int):
-    """Pega (sem reservar) um código disponível, só para gerar a prévia mascarada."""
+def get_stock_item_at_index(product_id: int, index: int):
+    """Pega (sem reservar) o item disponível na posição `index` (0-based), usado para
+    navegar 'Anterior/Próximo' entre as contas em estoque de uma categoria."""
     with get_conn() as conn:
         return conn.execute(
-            "SELECT * FROM stock WHERE product_id = ? AND is_sold = 0 ORDER BY id LIMIT 1",
-            (product_id,),
+            "SELECT * FROM stock WHERE product_id = ? AND is_sold = 0 ORDER BY id LIMIT 1 OFFSET ?",
+            (product_id, index),
         ).fetchone()
 
 
-def add_stock(product_id: int, codes: list[str]) -> int:
-    """Restock: adiciona vários códigos de uma vez. Retorna quantos foram inseridos."""
+def add_stock_accounts(product_id: int, accounts: list[dict]) -> int:
+    """Restock em lote: adiciona várias contas de uma vez (cada uma com login, senha,
+    validade opcional e perfil opcional). Retorna quantas foram inseridas."""
     with get_conn() as conn:
         conn.executemany(
-            "INSERT INTO stock (product_id, code) VALUES (?, ?)",
-            [(product_id, c.strip()) for c in codes if c.strip()],
+            "INSERT INTO stock (product_id, login, senha, validade, perfil) VALUES (?, ?, ?, ?, ?)",
+            [
+                (product_id, a["login"], a["senha"], a.get("validade"), a.get("perfil"))
+                for a in accounts
+            ],
         )
-        return len([c for c in codes if c.strip()])
+        return len(accounts)
 
 
-def claim_stock_item(product_id: int, buyer_id: int):
-    """Reserva atomicamente um item de estoque disponível e marca como vendido."""
+def claim_specific_stock_item(stock_id: int, buyer_id: int):
+    """Reserva atomicamente o item específico (o que o cliente estava vendo), só se
+    ainda estiver disponível. Retorna None se alguém já comprou ele nesse meio tempo."""
     with get_conn() as conn:
-        row = conn.execute(
-            "SELECT * FROM stock WHERE product_id = ? AND is_sold = 0 ORDER BY id LIMIT 1",
-            (product_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        conn.execute(
-            "UPDATE stock SET is_sold = 1, sold_to = ?, sold_at = CURRENT_TIMESTAMP WHERE id = ?",
-            (buyer_id, row["id"]),
+        cur = conn.execute(
+            "UPDATE stock SET is_sold = 1, sold_to = ?, sold_at = CURRENT_TIMESTAMP "
+            "WHERE id = ? AND is_sold = 0",
+            (buyer_id, stock_id),
         )
-        return row
+        if cur.rowcount == 0:
+            return None
+        return conn.execute("SELECT * FROM stock WHERE id = ?", (stock_id,)).fetchone()
 
 
 def record_purchase(user_id: int, product_id: int, stock_id: int, price: float):

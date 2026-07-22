@@ -31,9 +31,10 @@ from keyboards import (
     back_to_menu_keyboard,
     sellers_keyboard,
     products_keyboard,
-    product_detail_keyboard,
+    product_browse_keyboard,
     check_payment_keyboard,
-    mask_code,
+    mask_login,
+    mask_password,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -307,55 +308,82 @@ async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await render_text(update, context, "📦 Produtos disponíveis:", products_keyboard(products))
 
 
-async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, index: int):
     query = update.callback_query
-    product_id = int(query.data.split("product_", 1)[1])
     product = db.get_product(product_id)
-    qty = db.get_available_count(product_id)
+    total = db.get_available_count(product_id)
 
-    if qty == 0:
+    if total == 0:
         await query.answer("Produto esgotado no momento.", show_alert=True)
         return
 
-    sample = db.peek_available_code(product_id)
-    preview = mask_code(sample["code"])
+    index = max(0, min(index, total - 1))
+    item = db.get_stock_item_at_index(product_id, index)
+    if item is None:
+        await query.answer("Item não encontrado.", show_alert=True)
+        return
 
-    text = (
-        f"📦 {product['name']}\n"
-        f"💵 Preço: R$ {product['price']:.2f}\n"
-        f"📊 Em estoque: {qty}\n\n"
-        f"Prévia:\n`{preview}`\n\n"
-        "O conteúdo completo só é liberado após a confirmação da compra."
-    )
-    await render_text(update, context, text, product_detail_keyboard(product_id), parse_mode="Markdown")
+    balance = db.get_balance(query.from_user.id)
+
+    lines = [
+        f"🔎 Mostrando {index + 1} de {total}",
+        "✨ Detalhes",
+        f"📧 login: {mask_login(item['login'])}",
+        f"🔑 senha: {mask_password(item['senha'])}",
+    ]
+    if item["validade"]:
+        lines.append(f"📆 validade: {item['validade']}")
+    if item["perfil"]:
+        lines.append(f"🖥️ perfil: {item['perfil']}")
+    lines.append(f"💵 Preço: R$ {product['price']:.2f} (saldo)")
+    lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
+    lines.append("")
+    lines.append("O conteúdo completo (login e senha) só é liberado após a confirmação da compra.")
+
+    text = f"📦 {product['name']}\n\n" + "\n".join(lines)
+    await render_text(update, context, text, product_browse_keyboard(product_id, index, total))
 
 
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    product_id = int(query.data.split("confirm_", 1)[1])
+    _, product_id_str, index_str = query.data.split("_")
+    product_id = int(product_id_str)
+    index = int(index_str)
     product = db.get_product(product_id)
     user_id = query.from_user.id
+
+    item = db.get_stock_item_at_index(product_id, index)
+    if item is None:
+        await query.answer("Esse item não está mais disponível. Escolha outro.", show_alert=True)
+        await show_product_browse(update, context, product_id, 0)
+        return
 
     if not db.deduct_balance(user_id, product["price"]):
         await query.answer("Saldo insuficiente. Adicione saldo antes de comprar.", show_alert=True)
         return
 
-    stock_item = db.claim_stock_item(product_id, user_id)
-    if stock_item is None:
-        # Sem estoque -> estorna o saldo debitado
+    claimed = db.claim_specific_stock_item(item["id"], user_id)
+    if claimed is None:
+        # Alguém comprou esse item específico entre a navegação e a confirmação -> estorna
         db.add_balance(user_id, product["price"])
-        await query.answer("Produto esgotado no momento em que a compra foi confirmada.", show_alert=True)
+        await query.answer("Esse item acabou de ser vendido para outra pessoa. Veja outro.", show_alert=True)
+        await show_product_browse(update, context, product_id, 0)
         return
 
-    db.record_purchase(user_id, product_id, stock_item["id"], product["price"])
+    db.record_purchase(user_id, product_id, claimed["id"], product["price"])
 
-    await render_text(
-        update,
-        context,
-        f"✅ Compra concluída: {product['name']}\n\nConteúdo:\n`{stock_item['code']}`",
-        back_to_menu_keyboard(),
-        parse_mode="Markdown",
-    )
+    lines = [
+        f"✅ Compra concluída: {product['name']}",
+        "",
+        f"📧 login: {claimed['login']}",
+        f"🔑 senha: {claimed['senha']}",
+    ]
+    if claimed["validade"]:
+        lines.append(f"📆 validade: {claimed['validade']}")
+    if claimed["perfil"]:
+        lines.append(f"🖥️ perfil: {claimed['perfil']}")
+
+    await render_text(update, context, "\n".join(lines), back_to_menu_keyboard())
 
 
 # ---------------------------------------------------------------------------
@@ -384,42 +412,87 @@ async def cmd_addproduct(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     product_id = db.create_product(name, price)
     await update.message.reply_text(
-        f"✅ Produto criado (ID {product_id}): {name} — R$ {price:.2f}\n"
-        f"Use /restock {product_id} e envie os códigos (um por linha) para adicionar estoque."
+        f"✅ Categoria criada (ID {product_id}): {name} — R$ {price:.2f}\n"
+        f"Use /restock {product_id} e envie as contas (login, senha, validade, perfil) para adicionar estoque."
     )
 
 
 async def cmd_restock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/restock <product_id>  -> em seguida o admin envia os códigos, um por linha"""
+    """/restock <product_id>  -> em seguida o admin envia as contas, em blocos separados
+    por linha em branco (pode mandar quantas quiser de uma vez, e repetir o comando
+    para adicionar mais depois)."""
     if not await admin_only(update):
         return
     try:
         product_id = int(update.message.text.split(" ", 1)[1].strip())
     except Exception:
-        await update.message.reply_text("Uso: /restock <id_do_produto>")
+        await update.message.reply_text("Uso: /restock <id_da_categoria>")
         return
 
     product = db.get_product(product_id)
     if product is None:
-        await update.message.reply_text("Produto não encontrado.")
+        await update.message.reply_text("Categoria não encontrada.")
         return
 
-    context.user_data["awaiting"] = "restock_codes"
+    context.user_data["awaiting"] = "restock_accounts"
     context.user_data["restock_product_id"] = product_id
     await update.message.reply_text(
-        f"Envie agora os códigos para '{product['name']}', um por linha, em uma única mensagem."
+        f"Envie agora as contas para '{product['name']}'.\n\n"
+        "Uma conta por bloco, separadas por uma linha em branco. Exemplo com 2 contas:\n\n"
+        "login: cliente1@email.com\n"
+        "senha: Abc12345\n"
+        "validade: até 12/2026\n"
+        "perfil: Tela 2\n\n"
+        "login: cliente2@email.com\n"
+        "senha: Xyz98765\n"
+        "validade: até 12/2026\n"
+        "perfil: Tela 1\n\n"
+        "(validade e perfil são opcionais)"
     )
 
 
-async def handle_restock_codes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def parse_restock_accounts(raw_text: str):
+    """Faz o parse de vários blocos de conta (separados por linha em branco), cada um
+    com campos 'label: valor'. Retorna (contas_validas, quantidade_de_blocos_com_erro)."""
+    field_aliases = {
+        "login": "login", "email": "login", "e-mail": "login", "usuario": "login", "usuário": "login",
+        "senha": "senha", "password": "senha", "pass": "senha",
+        "validade": "validade", "plano": "validade", "vencimento": "validade",
+        "perfil": "perfil", "tela": "perfil", "pin": "perfil",
+    }
+    blocks = re.split(r"\n\s*\n", raw_text.strip())
+    accounts = []
+    error_count = 0
+    for block in blocks:
+        if not block.strip():
+            continue
+        fields = {}
+        for line in block.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.split(":", 1)
+            mapped = field_aliases.get(key.strip().lower())
+            if mapped:
+                fields[mapped] = value.strip()
+        if fields.get("login") and fields.get("senha"):
+            accounts.append(fields)
+        else:
+            error_count += 1
+    return accounts, error_count
+
+
+async def handle_restock_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product_id = context.user_data.pop("restock_product_id")
     context.user_data.pop("awaiting", None)
-    codes = update.message.text.splitlines()
-    inserted = db.add_stock(product_id, codes)
+
+    accounts, error_count = parse_restock_accounts(update.message.text)
+    inserted = db.add_stock_accounts(product_id, accounts) if accounts else 0
     total = db.get_available_count(product_id)
-    await update.message.reply_text(
-        f"✅ {inserted} código(s) adicionados. Estoque atual: {total} unidade(s)."
-    )
+
+    msg = f"✅ {inserted} conta(s) adicionada(s). Estoque atual: {total} unidade(s)."
+    if error_count:
+        msg += f"\n⚠️ {error_count} bloco(s) ignorado(s) por faltar login ou senha."
+    await update.message.reply_text(msg)
 
 
 async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -446,8 +519,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_email_input(update, context)
     elif awaiting == "cpf":
         await handle_cpf_input(update, context)
-    elif awaiting == "restock_codes" and is_admin(update.effective_user.id):
-        await handle_restock_codes(update, context)
+    elif awaiting == "restock_accounts" and is_admin(update.effective_user.id):
+        await handle_restock_accounts(update, context)
     # Se não há estado pendente, ignora o texto (ou poderia repetir o menu)
 
 
@@ -470,7 +543,11 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "wallet":
         await show_wallet(update, context)
     elif data.startswith("product_"):
-        await show_product_detail(update, context)
+        product_id = int(data.split("product_", 1)[1])
+        await show_product_browse(update, context, product_id, 0)
+    elif data.startswith("pnav_"):
+        _, product_id_str, index_str = data.split("_")
+        await show_product_browse(update, context, int(product_id_str), int(index_str))
     elif data.startswith("confirm_"):
         await confirm_purchase(update, context)
     elif data.startswith("check_"):

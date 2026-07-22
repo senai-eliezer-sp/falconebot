@@ -2,22 +2,30 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from config import ADMIN_DISPLAY_NAME, SUPPORT_URL, ANNOUNCEMENTS_URL, GROUP_URL
 
 
-def mask_code(code: str) -> str:
+def mask_login(login: str) -> str:
     """
-    Mascara uma chave/cupom mantendo os primeiros e últimos 2 caracteres de cada
-    bloco (separado por - ou espaço), substituindo o meio por *.
-    Ex: 'ABCD-1234-EFGH-5678' -> 'AB**-**34-EF**-**78'
+    Mascara um login/e-mail mantendo os 2 primeiros caracteres de cada parte visíveis.
+    Ex: 'joaozinho@gmail.com' -> 'jo*******@gm***.com'
     """
-    def mask_block(block: str) -> str:
-        n = len(block)
-        if n <= 4:
-            return "*" * n
-        return block[:2] + "*" * (n - 4) + block[-2:]
+    if not login:
+        return ""
+    if "@" in login:
+        user, domain = login.split("@", 1)
+        user_masked = user[:2] + "*" * max(len(user) - 2, 1)
+        if "." in domain:
+            dom_name, dom_ext = domain.rsplit(".", 1)
+            dom_masked = dom_name[:2] + "*" * max(len(dom_name) - 2, 1)
+            return f"{user_masked}@{dom_masked}.{dom_ext}"
+        return f"{user_masked}@{'*' * len(domain)}"
+    n = len(login)
+    if n <= 4:
+        return "*" * n
+    return login[:2] + "*" * (n - 4) + login[-2:]
 
-    for sep in ("-", " "):
-        if sep in code:
-            return sep.join(mask_block(b) for b in code.split(sep))
-    return mask_block(code)
+
+def mask_password(_senha: str) -> str:
+    """A senha nunca é mostrada antes da compra, só um placeholder fixo."""
+    return "********"
 
 
 def main_menu_keyboard():
@@ -65,14 +73,20 @@ def products_keyboard(products):
     return InlineKeyboardMarkup(rows)
 
 
-def product_detail_keyboard(product_id: int):
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("✅ Confirmar Compra", callback_data=f"confirm_{product_id}")],
-            [InlineKeyboardButton("⬅️ Voltar", callback_data="seller_admin")],
-            [InlineKeyboardButton("🏠 Menu Principal", callback_data="menu")],
-        ]
-    )
+def product_browse_keyboard(product_id: int, index: int, total: int):
+    nav_row = []
+    if index > 0:
+        nav_row.append(InlineKeyboardButton("⬅️ Anterior", callback_data=f"pnav_{product_id}_{index - 1}"))
+    if index < total - 1:
+        nav_row.append(InlineKeyboardButton("➡️ Próximo", callback_data=f"pnav_{product_id}_{index + 1}"))
+
+    rows = []
+    if nav_row:
+        rows.append(nav_row)
+    rows.append([InlineKeyboardButton("✅ Confirmar Compra", callback_data=f"confirm_{product_id}_{index}")])
+    rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data="seller_admin")])
+    rows.append([InlineKeyboardButton("🏠 Menu Principal", callback_data="menu")])
+    return InlineKeyboardMarkup(rows)
 
 
 def check_payment_keyboard(id_transaction: str):
