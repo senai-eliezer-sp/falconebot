@@ -18,10 +18,9 @@ DB_PATH = os.getenv("DB_PATH", "vipfalcone.db")
 
 # Banner exibido no menu principal (imagem local dentro da pasta assets/)
 WELCOME_TEXT = os.getenv(
+     BANNER_PATH = os.getenv("BANNER_PATH", "banner.jpeg")
     "WELCOME_TEXT",
     "Bem-vindo(a) ao nosso bot! Aqui você encontra tudo que precisa, direto por aqui."
-    
-    BANNER_PATH = os.getenv("BANNER_PATH", "banner.jpeg")
 )
 
 # Links/textos extras do menu principal (edite depois pelo painel de Variáveis, sem precisar mexer no código)
