@@ -1,6 +1,7 @@
 import base64
 import io
 import logging
+import os
 import re
 
 from telegram import Update
@@ -15,9 +16,19 @@ from telegram.ext import (
 
 import db
 import mercadopago_client
-from config import BOT_TOKEN, BOT_NAME, ADMIN_IDS, PAYMENT_CHECK_INTERVAL, PAYMENT_CHECK_TIMEOUT
+from config import (
+    BOT_TOKEN,
+    BOT_NAME,
+    ADMIN_IDS,
+    PAYMENT_CHECK_INTERVAL,
+    PAYMENT_CHECK_TIMEOUT,
+    BANNER_PATH,
+    WELCOME_TEXT,
+    TERMS_TEXT,
+)
 from keyboards import (
     main_menu_keyboard,
+    back_to_menu_keyboard,
     sellers_keyboard,
     products_keyboard,
     product_detail_keyboard,
@@ -37,27 +48,72 @@ def is_admin(user_id: int) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Helpers de navegação: cada troca de tela apaga a mensagem anterior e envia
+# uma nova, o que permite alternar livremente entre telas com foto (banner)
+# e telas de texto simples sem dar erro de edição incompatível no Telegram.
+# ---------------------------------------------------------------------------
+
+async def _delete_if_callback(update: Update):
+    if update.callback_query:
+        try:
+            await update.callback_query.message.delete()
+        except Exception:
+            pass
+
+
+async def render_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, keyboard, parse_mode=None):
+    chat_id = update.effective_chat.id
+    await _delete_if_callback(update)
+    await context.bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=parse_mode)
+
+
+async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    db.get_or_create_user(user.id, user.full_name)
+    balance = db.get_balance(user.id)
+    caption = (
+        f"🦅 {BOT_NAME}\n\n"
+        f"{WELCOME_TEXT}\n\n"
+        f"💰 Saldo Atual: R$ {balance:.2f}\n\n"
+        "Escolha uma opção abaixo:"
+    )
+    chat_id = update.effective_chat.id
+    await _delete_if_callback(update)
+
+    if os.path.exists(BANNER_PATH):
+        try:
+            with open(BANNER_PATH, "rb") as photo_file:
+                await context.bot.send_photo(
+                    chat_id, photo=photo_file, caption=caption, reply_markup=main_menu_keyboard()
+                )
+            return
+        except Exception:
+            logger.exception("Falha ao enviar banner, caindo para menu em texto")
+
+    await context.bot.send_message(chat_id, caption, reply_markup=main_menu_keyboard())
+
+
+# ---------------------------------------------------------------------------
 # /start e menu principal
 # ---------------------------------------------------------------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    db.get_or_create_user(user.id, user.full_name)
-    balance = db.get_balance(user.id)
-    text = f"🦅 {BOT_NAME}\n\n💰 Saldo Atual: {balance:.2f}\n\nEscolha uma opção abaixo:"
-    if update.message:
-        await update.message.reply_text(text, reply_markup=main_menu_keyboard())
-    else:
-        await update.callback_query.edit_message_text(text, reply_markup=main_menu_keyboard())
+    await send_main_menu(update, context)
 
 
 async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     balance = db.get_balance(query.from_user.id)
-    await query.edit_message_text(
+    await render_text(
+        update,
+        context,
         f"👛 {BOT_NAME} — Sua carteira\n\n💰 Saldo: R$ {balance:.2f}",
-        reply_markup=main_menu_keyboard(),
+        main_menu_keyboard(),
     )
+
+
+async def show_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await render_text(update, context, TERMS_TEXT, back_to_menu_keyboard())
 
 
 # ---------------------------------------------------------------------------
@@ -65,9 +121,10 @@ async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def start_add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
     context.user_data["awaiting"] = "amount"
-    await query.edit_message_text("💳 Digite o valor que deseja adicionar (ex: 20.00):")
+    await render_text(
+        update, context, "💳 Digite o valor que deseja adicionar (ex: 20.00):", back_to_menu_keyboard()
+    )
 
 
 async def handle_amount_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -239,17 +296,15 @@ async def auto_check_payment(context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def show_sellers(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.edit_message_text("🛒 Escolha o vendedor:", reply_markup=sellers_keyboard())
+    await render_text(update, context, "🛒 Escolha o vendedor:", sellers_keyboard())
 
 
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
     products = db.list_active_products()
     if not products:
-        await query.edit_message_text("Nenhum produto disponível no momento.", reply_markup=sellers_keyboard())
+        await render_text(update, context, "Nenhum produto disponível no momento.", sellers_keyboard())
         return
-    await query.edit_message_text("📦 Produtos disponíveis:", reply_markup=products_keyboard(products))
+    await render_text(update, context, "📦 Produtos disponíveis:", products_keyboard(products))
 
 
 async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -272,7 +327,7 @@ async def show_product_detail(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"Prévia:\n`{preview}`\n\n"
         "O conteúdo completo só é liberado após a confirmação da compra."
     )
-    await query.edit_message_text(text, parse_mode="Markdown", reply_markup=product_detail_keyboard(product_id))
+    await render_text(update, context, text, product_detail_keyboard(product_id), parse_mode="Markdown")
 
 
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -294,9 +349,11 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db.record_purchase(user_id, product_id, stock_item["id"], product["price"])
 
-    await query.edit_message_text(
-        f"✅ Compra concluída: {product['name']}\n\n"
-        f"Conteúdo:\n`{stock_item['code']}`",
+    await render_text(
+        update,
+        context,
+        f"✅ Compra concluída: {product['name']}\n\nConteúdo:\n`{stock_item['code']}`",
+        back_to_menu_keyboard(),
         parse_mode="Markdown",
     )
 
@@ -400,7 +457,11 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = update.callback_query.data
-    if data == "buy":
+    if data == "menu":
+        await send_main_menu(update, context)
+    elif data == "terms":
+        await show_terms(update, context)
+    elif data == "buy":
         await show_sellers(update, context)
     elif data == "seller_admin":
         await show_products(update, context)
@@ -414,6 +475,7 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_purchase(update, context)
     elif data.startswith("check_"):
         await check_payment_callback(update, context)
+        return
     await update.callback_query.answer()
 
 

@@ -1,5 +1,5 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from config import ADMIN_DISPLAY_NAME
+from config import ADMIN_DISPLAY_NAME, SUPPORT_URL, ANNOUNCEMENTS_URL, GROUP_URL
 
 
 def mask_code(code: str) -> str:
@@ -28,13 +28,30 @@ def main_menu_keyboard():
                 InlineKeyboardButton("💳 Adicione Saldo", callback_data="add_balance"),
                 InlineKeyboardButton("👛 Carteira", callback_data="wallet"),
             ],
+            [
+                InlineKeyboardButton("💬 Grupo/Comunidade", url=GROUP_URL),
+                InlineKeyboardButton("📢 Canal de Avisos", url=ANNOUNCEMENTS_URL),
+            ],
+            [
+                InlineKeyboardButton("🛟 Suporte/Atendimento", url=SUPPORT_URL),
+                InlineKeyboardButton("📄 Termos de Troca", callback_data="terms"),
+            ],
         ]
+    )
+
+
+def back_to_menu_keyboard():
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("⬅️ Menu Principal", callback_data="menu")]]
     )
 
 
 def sellers_keyboard():
     return InlineKeyboardMarkup(
-        [[InlineKeyboardButton(f"👤 {ADMIN_DISPLAY_NAME}", callback_data="seller_admin")]]
+        [
+            [InlineKeyboardButton(f"👤 {ADMIN_DISPLAY_NAME}", callback_data="seller_admin")],
+            [InlineKeyboardButton("⬅️ Menu Principal", callback_data="menu")],
+        ]
     )
 
 
@@ -44,6 +61,7 @@ def products_keyboard(products):
         label = f"{p['name']} — R$ {p['price']:.2f} ({p['qty']} em estoque)"
         rows.append([InlineKeyboardButton(label, callback_data=f"product_{p['id']}")])
     rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data="buy")])
+    rows.append([InlineKeyboardButton("🏠 Menu Principal", callback_data="menu")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -52,6 +70,7 @@ def product_detail_keyboard(product_id: int):
         [
             [InlineKeyboardButton("✅ Confirmar Compra", callback_data=f"confirm_{product_id}")],
             [InlineKeyboardButton("⬅️ Voltar", callback_data="seller_admin")],
+            [InlineKeyboardButton("🏠 Menu Principal", callback_data="menu")],
         ]
     )
 
