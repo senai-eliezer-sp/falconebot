@@ -17,7 +17,7 @@ ADMIN_DISPLAY_NAME = os.getenv("ADMIN_DISPLAY_NAME", "Admin")
 DB_PATH = os.getenv("DB_PATH", "vipfalcone.db")
 
 # Banner exibido no menu principal (imagem local dentro da pasta assets/)
-BANNER_PATH = os.getenv("BANNER_PATH", "assets/banner.jpeg")
+BANNER_PATH = os.getenv("BANNER_PATH", assets/Banner.jpeg)
 WELCOME_TEXT = os.getenv(
     "WELCOME_TEXT",
     "Bem-vindo(a) ao nosso bot! Aqui você encontra tudo que precisa, direto por aqui."
