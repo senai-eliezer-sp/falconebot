@@ -109,7 +109,7 @@ async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update,
         context,
         f"👛 {BOT_NAME} — Sua carteira\n\n💰 Saldo: R$ {balance:.2f}",
-        main_menu_keyboard(),
+        back_to_menu_keyboard(),
     )
 
 
