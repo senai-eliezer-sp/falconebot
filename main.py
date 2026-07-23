@@ -35,7 +35,11 @@ from keyboards import (
     check_payment_keyboard,
     mask_login,
     mask_password,
+    mask_card_number,
+    mask_person_name,
+    mask_cpf,
 )
+from keyboards import categories_keyboard, admin_stock_keyboard
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
@@ -53,6 +57,7 @@ def is_admin(user_id: int) -> bool:
 # uma nova, o que permite alternar livremente entre telas com foto (banner)
 # e telas de texto simples sem dar erro de edição incompatível no Telegram.
 # ---------------------------------------------------------------------------
+
 
 async def _delete_if_callback(update: Update):
     if update.callback_query:
@@ -98,19 +103,47 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # /start e menu principal
 # ---------------------------------------------------------------------------
 
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await send_main_menu(update, context)
 
 
 async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    balance = db.get_balance(query.from_user.id)
-    await render_text(
-        update,
-        context,
-        f"👛 {BOT_NAME} — Sua carteira\n\n💰 Saldo: R$ {balance:.2f}",
-        main_menu_keyboard(),
-    )
+    user = query.from_user
+
+    # Garantir que o usuário exista na base
+    user_row = db.get_or_create_user(user.id, user.full_name)
+
+    username = f"@{user.username}" if user.username else "@"
+    is_admin_flag = "Sim" if is_admin(user.id) else "Não"
+    support_flag = "Não"
+    banned_flag = "Não"
+    created_at = user_row["created_at"] if user_row else "-"
+
+    wallet_id = str(user.id)
+    balance = db.get_balance(user.id)
+    cards_bought = db.get_purchases_count(user.id)
+    pix_recharges = db.get_recharges_count(user.id)
+
+    text_lines = [
+        "Suas Informações",
+        "",
+        f"📛 Nome: {user.full_name}",
+        f"🌐 User: {username}",
+        f"👮‍♀️ Admin: {is_admin_flag}",
+        f"⛑ Suporte: {support_flag}",
+        f"🚫 Banido: {banned_flag}",
+        f"📅 Data de cadastro: {created_at}",
+        "",
+        f"🆔 ID da carteira: {wallet_id}",
+        f"💰 Saldo: {balance:.2f}",
+        "",
+        f"💳 Cartões comprados: {cards_bought}",
+        f"💠 Recargas com pix's: {pix_recharges}",
+    ]
+
+    await render_text(update, context, "\n".join(text_lines), back_to_menu_keyboard())
 
 
 async def show_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -120,6 +153,7 @@ async def show_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 # Fluxo: Adicionar Saldo (Mercado Pago Pix)
 # ---------------------------------------------------------------------------
+
 
 async def start_add_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["awaiting"] = "amount"
@@ -296,16 +330,53 @@ async def auto_check_payment(context: ContextTypes.DEFAULT_TYPE):
 # Fluxo: Compra
 # ---------------------------------------------------------------------------
 
+
 async def show_sellers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await render_text(update, context, "🛒 Escolha o vendedor:", sellers_keyboard())
 
 
 async def show_products(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Mantido para compatibilidade, mas o fluxo principal de vendedor agora usa categorias
     products = db.list_active_products()
     if not products:
         await render_text(update, context, "Nenhum produto disponível no momento.", sellers_keyboard())
         return
     await render_text(update, context, "📦 Produtos disponíveis:", products_keyboard(products))
+
+
+CATEGORIES = [
+    "AMEX",
+    "BLACK",
+    "BUSINESS",
+    "CLASSIC",
+    "CORPORATE T&E",
+    "ELO",
+    "GOLD",
+    "GOVERNMENT COMMER",
+    "INFINITE",
+    "MICRO BUSINESS",
+    "MIXED PRODUCT",
+    "NUBANK BLACK",
+    "NUBANK GOLD",
+    "NUBANK MICRO BUSINESS",
+    "NUBANK PLATINUM",
+    "PERSONAL",
+    "PLATINUM",
+    "PREPAID",
+    "PREPAID CLASSIC",
+    "SIGNATURE",
+    "STANDARD",
+    "WORLD",
+]
+
+
+async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Exibe a lista fixa de categorias em duas colunas com quantidades do estoque."""
+    cats = []
+    for idx, name in enumerate(CATEGORIES):
+        qty = db.get_available_count_by_name(name)
+        cats.append((idx, name, qty))
+    await render_text(update, context, "🛒 Escolha a categoria:", categories_keyboard(cats))
 
 
 async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, index: int):
@@ -325,23 +396,136 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     balance = db.get_balance(query.from_user.id)
 
-    lines = [
-        f"🔎 Mostrando {index + 1} de {total}",
-        "✨ Detalhes",
-        f"📧 login: {mask_login(item['login'])}",
-        f"🔑 senha: {mask_password(item['senha'])}",
-    ]
-    if item["validade"]:
-        lines.append(f"📆 validade: {item['validade']}")
-    if item["perfil"]:
-        lines.append(f"🖥️ perfil: {item['perfil']}")
-    lines.append(f"💵 Preço: R$ {product['price']:.2f} (saldo)")
-    lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
+    # Tentar extrair campos adicionais da coluna 'perfil' (se estiver em formato 'chave: valor' por linha)
+    extra = {}
+    perf = item.get('perfil') or ''
+    for line in (perf or '').splitlines():
+        if ':' in line:
+            k, v = line.split(':', 1)
+            extra[k.strip().lower()] = v.strip()
+
+    lines = []
+    lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
-    lines.append("O conteúdo completo (login e senha) só é liberado após a confirmação da compra.")
+    lines.append("✨ Detalhes do cartão")
+    lines.append(f"💳 cartão: {mask_card_number(item['login'])}")
+    if item.get('validade'):
+        lines.append(f"📆 mes / ano: {item['validade']}")
+    lines.append(f"🔐 cvv: {'***'}")
+    lines.append("")
+    if extra.get('bandeira'):
+        lines.append(f"🏳️ bandeira: {extra.get('bandeira')}")
+    if extra.get('nivel'):
+        lines.append(f"💠 nível: {extra.get('nivel')}")
+    elif item.get('perfil'):
+        # mostrar perfil como nível quando não houver chave dedicada
+        lines.append(f"💠 nível: {item.get('perfil')}")
+    if extra.get('tipo'):
+        lines.append(f"⚜ tipo: {extra.get('tipo')}")
+    if extra.get('banco'):
+        lines.append(f"🏛 banco: {extra.get('banco')}")
+    if extra.get('pais'):
+        lines.append(f"🌍 pais: {extra.get('pais')}")
+
+    # Nome e CPF (mascarados) — só se vierem em perfil/extras
+    if extra.get('nome'):
+        lines.append("")
+        lines.append("👤Nome:")
+        lines.append(mask_person_name(extra.get('nome')))
+    if extra.get('cpf'):
+        lines.append("🪪 cpf:")
+        lines.append(mask_cpf(extra.get('cpf')))
+
+    lines.append("")
+    lines.append(f"🔄 Parcelas: **")
+    lines.append("")
+    lines.append(f"💵 Preço: R$ {product['price']:.2f} ( saldo )")
+    lines.append(f"💰 Seu saldo: {balance:.2f}")
+    lines.append("")
+    lines.append("O conteúdo completo (cartão, cvv, nome, cpf) só é liberado após a confirmação da compra e se houver saldo suficiente.")
 
     text = f"📦 {product['name']}\n\n" + "\n".join(lines)
     await render_text(update, context, text, product_browse_keyboard(product_id, index, total))
+
+
+async def admin_show_stock_browse(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, index: int):
+    query = update.callback_query if update.callback_query else None
+    product = db.get_product(product_id)
+    if product is None:
+        if query:
+            await query.answer("Produto não encontrado.", show_alert=True)
+        else:
+            await update.message.reply_text("Produto não encontrado.")
+        return
+
+    total = db.get_available_count(product_id)
+    if total == 0:
+        if query:
+            await query.answer("Nenhum item em estoque para essa categoria.", show_alert=True)
+        else:
+            await update.message.reply_text("Nenhum item em estoque para essa categoria.")
+        return
+
+    index = max(0, min(index, total - 1))
+    item = db.get_stock_item_at_index(product_id, index)
+    if item is None:
+        if query:
+            await query.answer("Item não encontrado.", show_alert=True)
+        else:
+            await update.message.reply_text("Item não encontrado.")
+        return
+
+    user_id_for_balance = query.from_user.id if query else update.effective_user.id
+    balance = db.get_balance(user_id_for_balance)
+
+    # Extrair campos adicionais de perfil, se houver
+    extra = {}
+    perf = item.get('perfil') or ''
+    for line in (perf or '').splitlines():
+        if ':' in line:
+            k, v = line.split(':', 1)
+            extra[k.strip().lower()] = v.strip()
+
+    lines = []
+    lines.append(f"🔎 Mostrando {index + 1} de {total}")
+    lines.append("")
+    lines.append("✨ Detalhes do cartão")
+    lines.append(f"💳 cartão: {mask_card_number(item['login'])}")
+    if item.get('validade'):
+        lines.append(f"📆 mes / ano: {item['validade']}")
+    lines.append("🔐 cvv: ***")
+    lines.append("")
+    if extra.get('bandeira'):
+        lines.append(f"🏳️ bandeira: {extra.get('bandeira')}")
+    if extra.get('nivel'):
+        lines.append(f"💠 nível: {extra.get('nivel')}")
+    elif item.get('perfil'):
+        lines.append(f"💠 nível: {item.get('perfil')}")
+    if extra.get('tipo'):
+        lines.append(f"⚜ tipo: {extra.get('tipo')}")
+    if extra.get('banco'):
+        lines.append(f"🏛 banco: {extra.get('banco')}")
+    if extra.get('pais'):
+        lines.append(f"🌍 pais: {extra.get('pais')}")
+
+    if extra.get('nome'):
+        lines.append("")
+        lines.append("👤Nome:")
+        lines.append(mask_person_name(extra.get('nome')))
+    if extra.get('cpf'):
+        lines.append("🪪 cpf:")
+        lines.append(mask_cpf(extra.get('cpf')))
+
+    lines.append("")
+    lines.append(f"🔄 Parcelas: **")
+    lines.append("")
+    lines.append(f"💵 Preço: {product['price']:.2f} (saldo)")
+    lines.append(f"💰 Seu saldo: {balance:.2f}")
+
+    # Envia como nova mensagem com teclado administrativo para navegação
+    chat_id = update.effective_chat.id
+    await _delete_if_callback(update)
+    await context.bot.send_message(chat_id, "\n".join(lines), reply_markup=admin_stock_keyboard(product_id, index, total))
 
 
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -371,6 +555,9 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     db.record_purchase(user_id, product_id, claimed["id"], product["price"])
+    # Mostrar os dados completos para o comprador
+    new_balance = db.get_balance(user_id)
+    purchases_count = db.get_purchases_count(user_id)
 
     lines = [
         f"✅ Compra concluída: {product['name']}",
@@ -383,12 +570,17 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if claimed["perfil"]:
         lines.append(f"🖥️ perfil: {claimed['perfil']}")
 
+    lines.append("")
+    lines.append(f"💳 Cartões comprados: {purchases_count}")
+    lines.append(f"💰 Seu saldo: R$ {new_balance:.2f}")
+
     await render_text(update, context, "\n".join(lines), back_to_menu_keyboard())
 
 
 # ---------------------------------------------------------------------------
 # Painel administrativo (restock de produtos)
 # ---------------------------------------------------------------------------
+
 
 async def admin_only(update: Update) -> bool:
     if not is_admin(update.effective_user.id):
@@ -499,17 +691,32 @@ async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/stock -> lista todos os produtos e quantidades restantes"""
     if not await admin_only(update):
         return
+    # Se for chamado como '/stock <product_id>', abre o navegador de itens para essa categoria
+    parts = update.message.text.split()
+    if len(parts) >= 2:
+        try:
+            product_id = int(parts[1])
+        except Exception:
+            await update.message.reply_text("Uso: /stock ou /stock <id_da_categoria>")
+            return
+        # Reuse admin browsing view
+        await admin_show_stock_browse(update, context, product_id, 0)
+        return
+
     products = db.list_active_products()
     if not products:
         await update.message.reply_text("Nenhum produto cadastrado.")
         return
     lines = [f"#{p['id']} {p['name']} — R$ {p['price']:.2f} — estoque: {p['qty']}" for p in products]
+    lines.append("")
+    lines.append("Use /stock <id_da_categoria> para navegar pelos itens e visualizar detalhes.")
     await update.message.reply_text("📊 Estoque atual:\n\n" + "\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
 # Roteador de mensagens de texto (baseado no estado "awaiting")
 # ---------------------------------------------------------------------------
+
 
 async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     awaiting = context.user_data.get("awaiting")
@@ -521,39 +728,83 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_cpf_input(update, context)
     elif awaiting == "restock_accounts" and is_admin(update.effective_user.id):
         await handle_restock_accounts(update, context)
-    # Se não há estado pendente, ignora o texto (ou poderia repetir o menu)
 
 
 # ---------------------------------------------------------------------------
 # Callback router
 # ---------------------------------------------------------------------------
 
+
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = update.callback_query.data
-    if data == "menu":
-        await send_main_menu(update, context)
-    elif data == "terms":
-        await show_terms(update, context)
-    elif data == "buy":
-        await show_sellers(update, context)
-    elif data == "seller_admin":
-        await show_products(update, context)
-    elif data == "add_balance":
-        await start_add_balance(update, context)
-    elif data == "wallet":
-        await show_wallet(update, context)
-    elif data.startswith("product_"):
-        product_id = int(data.split("product_", 1)[1])
-        await show_product_browse(update, context, product_id, 0)
-    elif data.startswith("pnav_"):
-        _, product_id_str, index_str = data.split("_")
-        await show_product_browse(update, context, int(product_id_str), int(index_str))
-    elif data.startswith("confirm_"):
-        await confirm_purchase(update, context)
-    elif data.startswith("check_"):
-        await check_payment_callback(update, context)
+    query = update.callback_query
+    if query is None:
         return
-    await update.callback_query.answer()
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    user_data = context.user_data
+    if user_data.get("_cb_locked"):
+        try:
+            await query.answer("Aguarde...", show_alert=False)
+        except Exception:
+            pass
+        return
+
+    user_data["_cb_locked"] = True
+    try:
+        data = query.data
+        if data == "menu":
+            await send_main_menu(update, context)
+        elif data == "terms":
+            await show_terms(update, context)
+        elif data == "buy":
+            await show_sellers(update, context)
+        elif data == "seller_admin":
+            await show_categories(update, context)
+        elif data == "add_balance":
+            await start_add_balance(update, context)
+        elif data == "wallet":
+            await show_wallet(update, context)
+        elif data.startswith("product_"):
+            product_id = int(data.split("product_", 1)[1])
+            await show_product_browse(update, context, product_id, 0)
+        elif data.startswith("catidx_"):
+            try:
+                idx = int(data.split("catidx_", 1)[1])
+            except Exception:
+                await query.answer("Erro interno.", show_alert=True)
+                return
+            if idx < 0 or idx >= len(CATEGORIES):
+                await query.answer("Categoria inválida.", show_alert=True)
+                return
+            name = CATEGORIES[idx]
+            prod = db.get_product_by_name(name)
+            if not prod:
+                await render_text(update, context, f"{name} — estoque: 0\n\nNenhum produto cadastrado para essa categoria.", back_to_menu_keyboard())
+                return
+            await show_product_browse(update, context, prod["id"], 0)
+        elif data.startswith("pnav_"):
+            _, product_id_str, index_str = data.split("_")
+            await show_product_browse(update, context, int(product_id_str), int(index_str))
+        elif data.startswith("pnav_admin_"):
+            _, product_id_str, index_str = data.split("_")
+            await admin_show_stock_browse(update, context, int(product_id_str), int(index_str))
+        elif data.startswith("confirm_"):
+            await confirm_purchase(update, context)
+        elif data.startswith("check_"):
+            await check_payment_callback(update, context)
+            return
+        elif data.startswith("admin_checked_"):
+            await query.answer("Marcado como Checado.", show_alert=False)
+            return
+        elif data.startswith("admin_virgin_"):
+            await query.answer("Marcado como Virgem.", show_alert=False)
+            return
+    finally:
+        user_data.pop("_cb_locked", None)
 
 
 def main():

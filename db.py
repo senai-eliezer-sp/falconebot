@@ -98,6 +98,11 @@ def get_balance(telegram_id: int) -> float:
         return row["balance"] if row else 0.0
 
 
+def get_user(telegram_id: int):
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)).fetchone()
+
+
 def set_user_payment_info(telegram_id: int, email: str, cpf: str):
     with get_conn() as conn:
         conn.execute(
@@ -153,6 +158,11 @@ def get_product(product_id: int):
         return conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
 
 
+def get_product_by_name(name: str):
+    with get_conn() as conn:
+        return conn.execute("SELECT * FROM products WHERE name = ?", (name,)).fetchone()
+
+
 def get_available_count(product_id: int) -> int:
     with get_conn() as conn:
         row = conn.execute(
@@ -160,6 +170,15 @@ def get_available_count(product_id: int) -> int:
             (product_id,),
         ).fetchone()
         return row["c"]
+
+
+def get_available_count_by_name(name: str) -> int:
+    """Retorna a quantidade disponível em estoque para uma categoria pelo nome.
+    Se a categoria (produto) não existir, retorna 0."""
+    prod = get_product_by_name(name)
+    if not prod:
+        return 0
+    return get_available_count(prod["id"]) 
 
 
 def get_stock_item_at_index(product_id: int, index: int):
@@ -206,6 +225,21 @@ def record_purchase(user_id: int, product_id: int, stock_id: int, price: float):
             "INSERT INTO purchases (user_id, product_id, stock_id, price) VALUES (?, ?, ?, ?)",
             (user_id, product_id, stock_id, price),
         )
+
+
+def get_purchases_count(user_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute("SELECT COUNT(*) AS c FROM purchases WHERE user_id = ?", (user_id,)).fetchone()
+        return row["c"] if row else 0
+
+
+def get_recharges_count(user_id: int) -> int:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS c FROM transactions WHERE user_id = ? AND status = 'PAID_OUT'",
+            (user_id,),
+        ).fetchone()
+        return row["c"] if row else 0
 
 
 # ---------- Transações Pix ----------
