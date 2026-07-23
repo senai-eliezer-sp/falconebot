@@ -389,6 +389,71 @@ CATEGORIES = [
     "WORLD",
 ]
 
+BIN_CATEGORY_RULES = {
+    "233026": {
+        "category": "MICRO BUSINESS",
+        "bandeira": "mastercard",
+        "nivel": "micro business",
+        "tipo": "credit",
+        "banco": "banco inter, s.a.",
+        "pais": "brazil",
+        "valor": 19.90,
+    },
+    "250031": {
+        "category": "MICRO BUSINESS",
+        "bandeira": "mastercard",
+        "nivel": "micro business",
+        "tipo": "credit",
+        "banco": "banco inter, s.a.",
+        "pais": "brazil",
+        "valor": 19.90,
+    },
+    "539090": {
+        "category": "MIXED PRODUCT",
+        "bandeira": "mastercard",
+        "nivel": "mixed product",
+        "tipo": "credit",
+        "banco": "itau unibanco, s.a.",
+        "pais": "brazil",
+        "valor": 19.90,
+    },
+    "520048": {
+        "category": "NUBANK BLACK",
+        "bandeira": "mastercard",
+        "nivel": "nubank black",
+        "tipo": "credit",
+        "banco": "nu pagamentos sa",
+        "pais": "brazil",
+        "valor": 19.90,
+    },
+    "550209": {
+        "category": "NUBANK GOLD",
+        "bandeira": "mastercard",
+        "nivel": "nubank gold",
+        "tipo": "credit",
+        "banco": "nu pagamentos sa",
+        "pais": "brazil",
+        "valor": 19.90,
+    },
+    "516292": {
+        "category": "NUBANK PLATINUM",
+        "bandeira": "mastercard",
+        "nivel": "nubank platinum",
+        "tipo": "credit",
+        "banco": "nu pagamentos sa",
+        "pais": "brazil",
+        "valor": 19.90,
+    },
+}
+
+DEFAULT_CATEGORY_PRICES = {
+    "MICRO BUSINESS": 19.90,
+    "MIXED PRODUCT": 19.90,
+    "NUBANK BLACK": 19.90,
+    "NUBANK GOLD": 19.90,
+    "NUBANK PLATINUM": 19.90,
+}
+
 
 async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Exibe a lista fixa de categorias em duas colunas com quantidades do estoque."""
@@ -666,152 +731,175 @@ async def cmd_restock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     para adicionar mais depois)."""
     if not await admin_only(update):
         return
-    try:
-        product_id = int(update.message.text.split(" ", 1)[1].strip())
-    except Exception:
-        await update.message.reply_text("Uso: /restock <id_da_categoria>")
+
+    text = update.message.text.strip()
+    parts = text.split(None, 1)
+    if len(parts) < 2:
+        await update.message.reply_text("Uso: /restock <id_da_categoria> ou envie o bloco de dados diretamente.")
         return
 
-    product = db.get_product(product_id)
-    if product is None:
-        await update.message.reply_text("Categoria não encontrada.")
+    payload = parts[1].strip()
+    if payload.isdigit():
+        product_id = int(payload)
+        product = db.get_product(product_id)
+        if product is None:
+            await update.message.reply_text("Categoria não encontrada.")
+            return
+
+        context.user_data["awaiting"] = "restock_accounts"
+        context.user_data["restock_product_id"] = product_id
+        await update.message.reply_text(
+            f"Envie agora os cartões para '{product['name']}'.\n\n"
+            "Você também pode colar o bloco de dados diretamente no comando e ele será processado automaticamente."
+        )
         return
 
-    context.user_data["awaiting"] = "restock_accounts"
-    context.user_data["restock_product_id"] = product_id
-    await update.message.reply_text(
-        f"Envie agora os cartões para '{product['name']}'.\n\n"
-        "Um cartão por bloco, separadas por uma linha em branco. Exemplo com 2 cartões:\n\n"
-        "cartao: 4111111111111111\n"
-        "cvv: 123\n"
-        "validade: 12/2028\n"
-        "bandeira: Visa\n"
-        "nivel: Gold\n"
-        "tipo: Crédito\n"
-        "banco: Banco do Brasil\n"
-        "pais: Brasil\n"
-        "nome: João Silva\n"
-        "cpf: 12345678900\n"
-        "valor: 50.00\n\n"
-        "cartao: 5555555555554444\n"
-        "cvv: 999\n"
-        "validade: 10/2027\n"
-        "bandeira: Mastercard\n"
-        "nivel: Platinum\n"
-        "tipo: Débito\n"
-        "banco: Nubank\n"
-        "pais: Brasil\n"
-        "nome: Maria Souza\n"
-        "cpf: 98765432100\n"
-        "valor: 70.00\n\n"
-        "(todos os campos são opcionais, exceto o cartão e o cvv quando quiserem identificar o item)"
-    )
+    await handle_restock_accounts(update, context, payload=payload)
+
+
+def _clean_text(value: str) -> str:
+    if value is None:
+        return ""
+    cleaned = str(value).strip()
+    if not cleaned:
+        return ""
+    if cleaned.upper() in {"NULL", "NONE", "NIL", "-", "—"}:
+        return ""
+    return " ".join(cleaned.split())
+
+
+def _parse_restock_block(block_text: str) -> dict | None:
+    text = _clean_text(block_text)
+    if not text:
+        return None
+
+    match = re.match(r"^(\d{13,19})\s*\|\s*(\d{1,2})\s*\|\s*(\d{2,4})\s*\|\s*(\d{3,4})", text)
+    if not match:
+        fallback_match = re.match(r"^(\d{13,19})", text)
+        if not fallback_match:
+            return None
+        card = fallback_match.group(1)
+        month = ""
+        year = ""
+        cvv = ""
+    else:
+        card = match.group(1)
+        month = match.group(2)
+        year = match.group(3)
+        cvv = match.group(4)
+
+    rest = text[match.end() if match else len(card):].strip() if match else text[len(card):].strip()
+    if not rest:
+        rest = ""
+
+    name = ""
+    cpf = ""
+    celular = ""
+    email = ""
+
+    for key, value in re.findall(r"(NOME|CPF|CELULAR|EMAIL)\s*:\s*(.+?)(?=(?:\s*-\s*(?:NOME|CPF|CELULAR|EMAIL):)|$)", rest, flags=re.IGNORECASE):
+        normalized_key = key.strip().lower()
+        cleaned_value = _clean_text(value)
+        if normalized_key == "nome":
+            name = cleaned_value
+        elif normalized_key == "cpf":
+            cpf = cleaned_value
+        elif normalized_key == "celular":
+            celular = cleaned_value
+        elif normalized_key == "email":
+            email = cleaned_value
+
+    if not name and "-" in rest:
+        parts = [p.strip() for p in rest.split("-") if p.strip()]
+        if parts:
+            name = _clean_text(parts[0].replace("NOME:", ""))
+
+    validade = f"{month}/{year}" if month and year else ""
+    bin_prefix = card[:6]
+    rule = BIN_CATEGORY_RULES.get(bin_prefix)
+
+    category = (rule or {}).get("category", "UNIDENTIFIED")
+    account = {
+        "cartao": card,
+        "cvv": cvv,
+        "validade": validade,
+        "bandeira": (rule or {}).get("bandeira", ""),
+        "nivel": (rule or {}).get("nivel", ""),
+        "tipo": (rule or {}).get("tipo", ""),
+        "banco": (rule or {}).get("banco", ""),
+        "pais": (rule or {}).get("pais", ""),
+        "nome": name,
+        "cpf": cpf,
+        "valor": (rule or {}).get("valor"),
+        "perfil": "\n".join(
+            [
+                f"celular: {celular}" if celular else "",
+                f"email: {email}" if email else "",
+            ]
+        ).strip(),
+        "category": category,
+    }
+    return account
 
 
 def parse_restock_accounts(raw_text: str):
-    """Faz o parse de vários blocos de cartão (separados por linha em branco), aceitando
-    formatos como 'campo: valor', 'campo = valor', 'campo valor' e aliases como login/senha.
-    Retorna (contas_validas, quantidade_de_blocos_com_erro)."""
-
-    def normalize_key(text: str) -> str:
-        normalized = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
-        return re.sub(r"[^a-z0-9]+", "", normalized.lower())
-
-    field_aliases = {
-        "cartao": "cartao",
-        "cartao": "cartao",
-        "card": "cartao",
-        "numero": "cartao",
-        "numerodocartao": "cartao",
-        "cvv": "cvv",
-        "cvc": "cvv",
-        "validade": "validade",
-        "mesano": "validade",
-        "vencimento": "validade",
-        "bandeira": "bandeira",
-        "flag": "bandeira",
-        "nivel": "nivel",
-        "nivel": "nivel",
-        "tipo": "tipo",
-        "banco": "banco",
-        "pais": "pais",
-        "nome": "nome",
-        "name": "nome",
-        "cpf": "cpf",
-        "valor": "valor",
-        "valordocartao": "valor",
-        "preco": "valor",
-        "price": "valor",
-        "login": "cartao",
-        "email": "cartao",
-        "email": "cartao",
-        "usuario": "cartao",
-        "user": "cartao",
-        "username": "cartao",
-        "senha": "cvv",
-        "password": "cvv",
-        "pass": "cvv",
-        "perfil": "perfil",
-        "tela": "perfil",
-        "pin": "perfil",
-        "conta": "cartao",
-        "account": "cartao",
-        "codigo": "cartao",
-    }
-
+    """Faz o parse de vários blocos de cartão, separando os dados e categorizando por BIN."""
     blocks = re.split(r"\n\s*\n", raw_text.strip())
     accounts = []
     error_count = 0
     for block in blocks:
         if not block.strip():
             continue
-
-        lines = [line.strip() for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-
-        fields = {}
-        for line in lines:
-            if ":" in line:
-                key, value = line.split(":", 1)
-            elif "=" in line:
-                key, value = line.split("=", 1)
-            else:
-                match = re.match(r"^([A-Za-zÀ-ÿ0-9_.-]+)\s+(.+)$", line)
-                if not match:
-                    continue
-                key, value = match.group(1), match.group(2)
-
-            mapped = field_aliases.get(normalize_key(key))
-            if mapped:
-                fields[mapped] = value.strip()
-
-        if not fields:
-            first_value = lines[0].strip()
-            if first_value and ("@" in first_value or re.fullmatch(r"\d{3,19}", first_value)):
-                fields["cartao"] = first_value
-
-        if fields.get("cartao") or fields.get("cvv") or fields.get("validade") or fields.get("bandeira") or fields.get("nivel") or fields.get("tipo") or fields.get("banco") or fields.get("pais") or fields.get("nome") or fields.get("cpf") or fields.get("valor") or fields.get("perfil"):
-            accounts.append(fields)
+        account = _parse_restock_block(block)
+        if account:
+            accounts.append(account)
         else:
             error_count += 1
     return accounts, error_count
 
 
-async def handle_restock_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    product_id = context.user_data.get("restock_product_id")
+async def handle_restock_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE, payload: str | None = None):
     context.user_data.pop("awaiting", None)
 
-    if product_id is None:
-        await update.message.reply_text("Nenhuma categoria foi selecionada. Use /stock e escolha uma categoria antes de enviar os dados.")
-        return
+    raw_text = payload if payload is not None else update.message.text
 
     try:
-        accounts, error_count = parse_restock_accounts(update.message.text)
-        inserted = db.add_stock_accounts(product_id, accounts) if accounts else 0
-        total = db.get_available_count(product_id)
+        accounts, error_count = parse_restock_accounts(raw_text)
+        if not accounts:
+            await update.message.reply_text("❌ Nenhum bloco de dados reconhecido para processar.")
+            return
 
-        msg = f"✅ {inserted} conta(s) adicionada(s) na categoria selecionada. Estoque atual: {total} unidade(s)."
+        grouped_accounts = {}
+        selected_product_id = context.user_data.get("restock_product_id")
+        selected_product = db.get_product(selected_product_id) if selected_product_id else None
+        selected_category_name = selected_product["name"] if selected_product else None
+
+        for account in accounts:
+            category_name = account.get("category") or selected_category_name or "UNIDENTIFIED"
+            if category_name == "UNIDENTIFIED" and selected_category_name:
+                category_name = selected_category_name
+            account["category"] = category_name
+            grouped_accounts.setdefault(category_name, []).append(account)
+
+        inserted_total = 0
+        inserted_categories = []
+        for category_name, category_accounts in grouped_accounts.items():
+            if category_name == "UNIDENTIFIED":
+                continue
+
+            product = db.get_product_by_name(category_name)
+            if product is None:
+                price = DEFAULT_CATEGORY_PRICES.get(category_name, 0.0)
+                product_id = db.create_product(category_name, price)
+            else:
+                product_id = product["id"]
+
+            db.add_stock_accounts(product_id, category_accounts)
+            inserted_total += len(category_accounts)
+            inserted_categories.append(f"{category_name} ({len(category_accounts)})")
+
+        total_message = ", ".join(inserted_categories) if inserted_categories else "nenhuma categoria identificada"
+        msg = f"✅ {inserted_total} conta(s) adicionada(s) automaticamente. Categorias: {total_message}."
         if error_count:
             msg += f"\n⚠️ {error_count} bloco(s) ignorado(s) por não conter dados reconhecíveis."
         await update.message.reply_text(msg)
@@ -863,20 +951,23 @@ async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await admin_only(update):
         return
 
-    parts = update.message.text.split()
+    text = update.message.text.strip()
+    parts = text.split(None, 1)
     if len(parts) >= 2:
+        payload = parts[1].strip()
         try:
-            product_id = int(parts[1])
-        except Exception:
-            await update.message.reply_text("Uso: /stock ou /stock <id_da_categoria>")
+            product_id = int(payload)
+        except ValueError:
+            await handle_restock_accounts(update, context, payload=payload)
             return
         await admin_show_stock_browse(update, context, product_id, 0)
         return
 
     context.user_data["awaiting"] = "stock_category_prompt"
     await update.message.reply_text(
-        "📦 Para adicionar estoque, envie a categoria desejada.\n\n"
-        "Exemplos: AMEX, GOLD, NUBANK BLACK, PLATINUM"
+        "📦 Para adicionar estoque, envie a categoria desejada ou cole o bloco de dados diretamente.\n\n"
+        "Exemplos: AMEX, GOLD, NUBANK BLACK, PLATINUM\n\n"
+        "Ou envie um bloco como: 5526933079536203|07|2028|210 NOME: ..."
     )
 
 
