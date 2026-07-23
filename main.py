@@ -799,17 +799,25 @@ def parse_restock_accounts(raw_text: str):
 
 
 async def handle_restock_accounts(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    product_id = context.user_data.pop("restock_product_id")
+    product_id = context.user_data.get("restock_product_id")
     context.user_data.pop("awaiting", None)
 
-    accounts, error_count = parse_restock_accounts(update.message.text)
-    inserted = db.add_stock_accounts(product_id, accounts) if accounts else 0
-    total = db.get_available_count(product_id)
+    if product_id is None:
+        await update.message.reply_text("Nenhuma categoria foi selecionada. Use /stock e escolha uma categoria antes de enviar os dados.")
+        return
 
-    msg = f"✅ {inserted} conta(s) adicionada(s). Estoque atual: {total} unidade(s)."
-    if error_count:
-        msg += f"\n⚠️ {error_count} bloco(s) ignorado(s) por faltar login ou senha."
-    await update.message.reply_text(msg)
+    try:
+        accounts, error_count = parse_restock_accounts(update.message.text)
+        inserted = db.add_stock_accounts(product_id, accounts) if accounts else 0
+        total = db.get_available_count(product_id)
+
+        msg = f"✅ {inserted} conta(s) adicionada(s) na categoria selecionada. Estoque atual: {total} unidade(s)."
+        if error_count:
+            msg += f"\n⚠️ {error_count} bloco(s) ignorado(s) por não conter dados reconhecíveis."
+        await update.message.reply_text(msg)
+    except Exception as exc:
+        logger.exception("Falha ao salvar estoque via /stock")
+        await update.message.reply_text(f"❌ Não foi possível salvar o estoque: {exc}")
 
 
 async def handle_stock_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
