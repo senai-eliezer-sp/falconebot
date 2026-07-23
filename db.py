@@ -41,7 +41,17 @@ def init_db():
                 product_id INTEGER NOT NULL REFERENCES products(id),
                 login TEXT,
                 senha TEXT,
+                cartao TEXT,
+                cvv TEXT,
                 validade TEXT,
+                bandeira TEXT,
+                nivel TEXT,
+                tipo TEXT,
+                banco TEXT,
+                pais TEXT,
+                nome TEXT,
+                cpf TEXT,
+                valor REAL,
                 perfil TEXT,
                 is_sold INTEGER NOT NULL DEFAULT 0,
                 sold_to INTEGER,
@@ -71,11 +81,26 @@ def init_db():
 
 
 def _migrate_stock_table(conn):
-    """Adiciona as novas colunas em bancos criados antes desta versão (schema antigo com 'code')."""
+    """Adiciona as novas colunas em bancos criados antes desta versão."""
     existing = {row["name"] for row in conn.execute("PRAGMA table_info(stock)").fetchall()}
-    for column in ("login", "senha", "validade", "perfil"):
+    for column, column_type in {
+        "login": "TEXT",
+        "senha": "TEXT",
+        "cartao": "TEXT",
+        "cvv": "TEXT",
+        "validade": "TEXT",
+        "bandeira": "TEXT",
+        "nivel": "TEXT",
+        "tipo": "TEXT",
+        "banco": "TEXT",
+        "pais": "TEXT",
+        "nome": "TEXT",
+        "cpf": "TEXT",
+        "valor": "REAL",
+        "perfil": "TEXT",
+    }.items():
         if column not in existing:
-            conn.execute(f"ALTER TABLE stock ADD COLUMN {column} TEXT")
+            conn.execute(f"ALTER TABLE stock ADD COLUMN {column} {column_type}")
 
 
 # ---------- Usuários ----------
@@ -192,13 +217,28 @@ def get_stock_item_at_index(product_id: int, index: int):
 
 
 def add_stock_accounts(product_id: int, accounts: list[dict]) -> int:
-    """Restock em lote: adiciona várias contas de uma vez (cada uma com login, senha,
-    validade opcional e perfil opcional). Retorna quantas foram inseridas."""
+    """Restock em lote para cartões, com campos opcionais de detalhes e valor."""
     with get_conn() as conn:
         conn.executemany(
-            "INSERT INTO stock (product_id, login, senha, validade, perfil) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO stock (product_id, login, senha, cartao, cvv, validade, bandeira, nivel, tipo, banco, pais, nome, cpf, valor, perfil) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                (product_id, a["login"], a["senha"], a.get("validade"), a.get("perfil"))
+                (
+                    product_id,
+                    a.get("cartao") or a.get("login"),
+                    a.get("cvv") or a.get("senha"),
+                    a.get("cartao") or a.get("login"),
+                    a.get("cvv") or a.get("senha"),
+                    a.get("validade"),
+                    a.get("bandeira"),
+                    a.get("nivel"),
+                    a.get("tipo"),
+                    a.get("banco"),
+                    a.get("pais"),
+                    a.get("nome"),
+                    a.get("cpf"),
+                    a.get("valor"),
+                    a.get("perfil"),
+                )
                 for a in accounts
             ],
         )

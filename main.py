@@ -60,16 +60,24 @@ def is_admin(user_id: int) -> bool:
 
 
 async def _delete_if_callback(update: Update):
-    if update.callback_query:
-        try:
-            await update.callback_query.message.delete()
-        except Exception:
-            pass
+    """Mantém o comportamento sem apagar a mensagem atual para evitar o efeito de piscar."""
+    return None
 
 
 async def render_text(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, keyboard, parse_mode=None):
+    if update.callback_query and getattr(update.callback_query, "message", None):
+        msg = update.callback_query.message
+        try:
+            await msg.edit_text(text, reply_markup=keyboard, parse_mode=parse_mode)
+            return
+        except Exception:
+            try:
+                await msg.edit_caption(caption=text, reply_markup=keyboard, parse_mode=parse_mode)
+                return
+            except Exception:
+                pass
+
     chat_id = update.effective_chat.id
-    await _delete_if_callback(update)
     await context.bot.send_message(chat_id, text, reply_markup=keyboard, parse_mode=parse_mode)
 
 
@@ -84,7 +92,18 @@ async def send_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Escolha uma opção abaixo:"
     )
     chat_id = update.effective_chat.id
-    await _delete_if_callback(update)
+
+    if update.callback_query and getattr(update.callback_query, "message", None):
+        msg = update.callback_query.message
+        try:
+            await msg.edit_text(caption, reply_markup=main_menu_keyboard())
+            return
+        except Exception:
+            try:
+                await msg.edit_caption(caption=caption, reply_markup=main_menu_keyboard())
+                return
+            except Exception:
+                pass
 
     if os.path.exists(BANNER_PATH):
         try:
@@ -379,6 +398,36 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await render_text(update, context, "🛒 Escolha a categoria:", categories_keyboard(cats))
 
 
+def _extract_stock_fields(item):
+    extra = {}
+    perf = item.get('perfil') or ''
+    for line in (perf or '').splitlines():
+        if ':' in line:
+            k, v = line.split(':', 1)
+            extra[k.strip().lower()] = v.strip()
+
+    valor = item.get('valor')
+    if valor is None and extra.get('valor'):
+        try:
+            valor = float(str(extra['valor']).replace(',', '.'))
+        except ValueError:
+            valor = extra['valor']
+
+    return {
+        'cartao': item.get('cartao') or item.get('login') or extra.get('cartao'),
+        'cvv': item.get('cvv') or item.get('senha') or extra.get('cvv'),
+        'validade': item.get('validade') or extra.get('validade'),
+        'bandeira': item.get('bandeira') or extra.get('bandeira'),
+        'nivel': item.get('nivel') or extra.get('nivel'),
+        'tipo': item.get('tipo') or extra.get('tipo'),
+        'banco': item.get('banco') or extra.get('banco'),
+        'pais': item.get('pais') or extra.get('pais'),
+        'nome': item.get('nome') or extra.get('nome'),
+        'cpf': item.get('cpf') or extra.get('cpf'),
+        'valor': valor,
+    }, extra
+
+
 async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, index: int):
     query = update.callback_query
     product = db.get_product(product_id)
@@ -395,51 +444,41 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     balance = db.get_balance(query.from_user.id)
-
-    # Tentar extrair campos adicionais da coluna 'perfil' (se estiver em formato 'chave: valor' por linha)
-    extra = {}
-    perf = item.get('perfil') or ''
-    for line in (perf or '').splitlines():
-        if ':' in line:
-            k, v = line.split(':', 1)
-            extra[k.strip().lower()] = v.strip()
+    stock_data, _ = _extract_stock_fields(item)
 
     lines = []
     lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
     lines.append("✨ Detalhes do cartão")
-    lines.append(f"💳 cartão: {mask_card_number(item['login'])}")
-    if item.get('validade'):
-        lines.append(f"📆 mes / ano: {item['validade']}")
-    lines.append(f"🔐 cvv: {'***'}")
+    lines.append(f"💳 Cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
+    if stock_data.get('validade'):
+        lines.append(f"📆 Validade: {stock_data['validade']}")
+    lines.append(f"🔐 Cvv: {mask_password(stock_data['cvv']) if stock_data.get('cvv') else '***'}")
     lines.append("")
-    if extra.get('bandeira'):
-        lines.append(f"🏳️ bandeira: {extra.get('bandeira')}")
-    if extra.get('nivel'):
-        lines.append(f"💠 nível: {extra.get('nivel')}")
-    elif item.get('perfil'):
-        # mostrar perfil como nível quando não houver chave dedicada
-        lines.append(f"💠 nível: {item.get('perfil')}")
-    if extra.get('tipo'):
-        lines.append(f"⚜ tipo: {extra.get('tipo')}")
-    if extra.get('banco'):
-        lines.append(f"🏛 banco: {extra.get('banco')}")
-    if extra.get('pais'):
-        lines.append(f"🌍 pais: {extra.get('pais')}")
+    if stock_data.get('bandeira'):
+        lines.append(f"🏳️ Bandeira: {stock_data['bandeira']}")
+    if stock_data.get('nivel'):
+        lines.append(f"💠 Nível: {stock_data['nivel']}")
+    if stock_data.get('tipo'):
+        lines.append(f"⚜️ Tipo: {stock_data['tipo']}")
+    if stock_data.get('banco'):
+        lines.append(f"🏛️ Banco: {stock_data['banco']}")
+    if stock_data.get('pais'):
+        lines.append(f"🌍 País: {stock_data['pais']}")
 
-    # Nome e CPF (mascarados) — só se vierem em perfil/extras
-    if extra.get('nome'):
+    if stock_data.get('nome'):
         lines.append("")
         lines.append("👤Nome:")
-        lines.append(mask_person_name(extra.get('nome')))
-    if extra.get('cpf'):
+        lines.append(mask_person_name(stock_data['nome']))
+    if stock_data.get('cpf'):
         lines.append("🪪 cpf:")
-        lines.append(mask_cpf(extra.get('cpf')))
+        lines.append(mask_cpf(stock_data['cpf']))
 
+    valor = stock_data.get('valor')
+    if valor is None:
+        valor = product['price']
     lines.append("")
-    lines.append(f"🔄 Parcelas: **")
-    lines.append("")
-    lines.append(f"💵 Preço: R$ {product['price']:.2f} ( saldo )")
+    lines.append(f"💸 Valor: R$ {float(valor):.2f}")
     lines.append(f"💰 Seu saldo: {balance:.2f}")
     lines.append("")
     lines.append("O conteúdo completo (cartão, cvv, nome, cpf) só é liberado após a confirmação da compra e se houver saldo suficiente.")
@@ -478,54 +517,44 @@ async def admin_show_stock_browse(update: Update, context: ContextTypes.DEFAULT_
     user_id_for_balance = query.from_user.id if query else update.effective_user.id
     balance = db.get_balance(user_id_for_balance)
 
-    # Extrair campos adicionais de perfil, se houver
-    extra = {}
-    perf = item.get('perfil') or ''
-    for line in (perf or '').splitlines():
-        if ':' in line:
-            k, v = line.split(':', 1)
-            extra[k.strip().lower()] = v.strip()
+    stock_data, _ = _extract_stock_fields(item)
 
     lines = []
     lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
     lines.append("✨ Detalhes do cartão")
-    lines.append(f"💳 cartão: {mask_card_number(item['login'])}")
-    if item.get('validade'):
-        lines.append(f"📆 mes / ano: {item['validade']}")
-    lines.append("🔐 cvv: ***")
+    lines.append(f"💳 Cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
+    if stock_data.get('validade'):
+        lines.append(f"📆 Validade: {stock_data['validade']}")
+    lines.append("🔐 Cvv: ***")
     lines.append("")
-    if extra.get('bandeira'):
-        lines.append(f"🏳️ bandeira: {extra.get('bandeira')}")
-    if extra.get('nivel'):
-        lines.append(f"💠 nível: {extra.get('nivel')}")
-    elif item.get('perfil'):
-        lines.append(f"💠 nível: {item.get('perfil')}")
-    if extra.get('tipo'):
-        lines.append(f"⚜ tipo: {extra.get('tipo')}")
-    if extra.get('banco'):
-        lines.append(f"🏛 banco: {extra.get('banco')}")
-    if extra.get('pais'):
-        lines.append(f"🌍 pais: {extra.get('pais')}")
+    if stock_data.get('bandeira'):
+        lines.append(f"🏳️ Bandeira: {stock_data['bandeira']}")
+    if stock_data.get('nivel'):
+        lines.append(f"💠 Nível: {stock_data['nivel']}")
+    if stock_data.get('tipo'):
+        lines.append(f"⚜️ Tipo: {stock_data['tipo']}")
+    if stock_data.get('banco'):
+        lines.append(f"🏛️ Banco: {stock_data['banco']}")
+    if stock_data.get('pais'):
+        lines.append(f"🌍 País: {stock_data['pais']}")
 
-    if extra.get('nome'):
+    if stock_data.get('nome'):
         lines.append("")
         lines.append("👤Nome:")
-        lines.append(mask_person_name(extra.get('nome')))
-    if extra.get('cpf'):
+        lines.append(mask_person_name(stock_data['nome']))
+    if stock_data.get('cpf'):
         lines.append("🪪 cpf:")
-        lines.append(mask_cpf(extra.get('cpf')))
+        lines.append(mask_cpf(stock_data['cpf']))
 
+    valor = stock_data.get('valor')
+    if valor is None:
+        valor = product['price']
     lines.append("")
-    lines.append(f"🔄 Parcelas: **")
-    lines.append("")
-    lines.append(f"💵 Preço: {product['price']:.2f} (saldo)")
+    lines.append(f"💸 Valor: R$ {float(valor):.2f}")
     lines.append(f"💰 Seu saldo: {balance:.2f}")
 
-    # Envia como nova mensagem com teclado administrativo para navegação
-    chat_id = update.effective_chat.id
-    await _delete_if_callback(update)
-    await context.bot.send_message(chat_id, "\n".join(lines), reply_markup=admin_stock_keyboard(product_id, index, total))
+    await render_text(update, context, "\n".join(lines), admin_stock_keyboard(product_id, index, total))
 
 
 async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -559,17 +588,38 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_balance = db.get_balance(user_id)
     purchases_count = db.get_purchases_count(user_id)
 
+    stock_data, _ = _extract_stock_fields(claimed)
     lines = [
         f"✅ Compra concluída: {product['name']}",
         "",
-        f"📧 login: {claimed['login']}",
-        f"🔑 senha: {claimed['senha']}",
+        "✨ Detalhes do cartão",
+        f"💳 Cartão: {stock_data['cartao'] or '—'}",
     ]
-    if claimed["validade"]:
-        lines.append(f"📆 validade: {claimed['validade']}")
-    if claimed["perfil"]:
-        lines.append(f"🖥️ perfil: {claimed['perfil']}")
+    if stock_data.get('validade'):
+        lines.append(f"📆 Validade: {stock_data['validade']}")
+    if stock_data.get('cvv'):
+        lines.append(f"🔐 Cvv: {stock_data['cvv']}")
+    if stock_data.get('bandeira'):
+        lines.append(f"🏳️ Bandeira: {stock_data['bandeira']}")
+    if stock_data.get('nivel'):
+        lines.append(f"💠 Nível: {stock_data['nivel']}")
+    if stock_data.get('tipo'):
+        lines.append(f"⚜️ Tipo: {stock_data['tipo']}")
+    if stock_data.get('banco'):
+        lines.append(f"🏛️ Banco: {stock_data['banco']}")
+    if stock_data.get('pais'):
+        lines.append(f"🌍 País: {stock_data['pais']}")
+    if stock_data.get('nome'):
+        lines.append("")
+        lines.append(f"👤Nome: {stock_data['nome']}")
+    if stock_data.get('cpf'):
+        lines.append(f"🪪 cpf: {stock_data['cpf']}")
 
+    valor = stock_data.get('valor')
+    if valor is None:
+        valor = product['price']
+    lines.append("")
+    lines.append(f"💸 Valor: R$ {float(valor):.2f}")
     lines.append("")
     lines.append(f"💳 Cartões comprados: {purchases_count}")
     lines.append(f"💰 Seu saldo: R$ {new_balance:.2f}")
@@ -605,7 +655,7 @@ async def cmd_addproduct(update: Update, context: ContextTypes.DEFAULT_TYPE):
     product_id = db.create_product(name, price)
     await update.message.reply_text(
         f"✅ Categoria criada (ID {product_id}): {name} — R$ {price:.2f}\n"
-        f"Use /restock {product_id} e envie as contas (login, senha, validade, perfil) para adicionar estoque."
+        f"Use /restock {product_id} e envie os dados do cartão no formato abaixo para adicionar estoque."
     )
 
 
@@ -629,28 +679,75 @@ async def cmd_restock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["awaiting"] = "restock_accounts"
     context.user_data["restock_product_id"] = product_id
     await update.message.reply_text(
-        f"Envie agora as contas para '{product['name']}'.\n\n"
-        "Uma conta por bloco, separadas por uma linha em branco. Exemplo com 2 contas:\n\n"
-        "login: cliente1@email.com\n"
-        "senha: Abc12345\n"
-        "validade: até 12/2026\n"
-        "perfil: Tela 2\n\n"
-        "login: cliente2@email.com\n"
-        "senha: Xyz98765\n"
-        "validade: até 12/2026\n"
-        "perfil: Tela 1\n\n"
-        "(validade e perfil são opcionais)"
+        f"Envie agora os cartões para '{product['name']}'.\n\n"
+        "Um cartão por bloco, separadas por uma linha em branco. Exemplo com 2 cartões:\n\n"
+        "cartao: 4111111111111111\n"
+        "cvv: 123\n"
+        "validade: 12/2028\n"
+        "bandeira: Visa\n"
+        "nivel: Gold\n"
+        "tipo: Crédito\n"
+        "banco: Banco do Brasil\n"
+        "pais: Brasil\n"
+        "nome: João Silva\n"
+        "cpf: 12345678900\n"
+        "valor: 50.00\n\n"
+        "cartao: 5555555555554444\n"
+        "cvv: 999\n"
+        "validade: 10/2027\n"
+        "bandeira: Mastercard\n"
+        "nivel: Platinum\n"
+        "tipo: Débito\n"
+        "banco: Nubank\n"
+        "pais: Brasil\n"
+        "nome: Maria Souza\n"
+        "cpf: 98765432100\n"
+        "valor: 70.00\n\n"
+        "(todos os campos são opcionais, exceto o cartão e o cvv quando quiserem identificar o item)"
     )
 
 
 def parse_restock_accounts(raw_text: str):
-    """Faz o parse de vários blocos de conta (separados por linha em branco), cada um
+    """Faz o parse de vários blocos de cartão (separados por linha em branco), cada um
     com campos 'label: valor'. Retorna (contas_validas, quantidade_de_blocos_com_erro)."""
     field_aliases = {
-        "login": "login", "email": "login", "e-mail": "login", "usuario": "login", "usuário": "login",
-        "senha": "senha", "password": "senha", "pass": "senha",
-        "validade": "validade", "plano": "validade", "vencimento": "validade",
-        "perfil": "perfil", "tela": "perfil", "pin": "perfil",
+        "cartao": "cartao",
+        "cartão": "cartao",
+        "card": "cartao",
+        "numero": "cartao",
+        "numero do cartao": "cartao",
+        "cvv": "cvv",
+        "cvc": "cvv",
+        "validade": "validade",
+        "mes/ano": "validade",
+        "vencimento": "validade",
+        "bandeira": "bandeira",
+        "flag": "bandeira",
+        "nivel": "nivel",
+        "nível": "nivel",
+        "tipo": "tipo",
+        "banco": "banco",
+        "pais": "pais",
+        "país": "pais",
+        "nome": "nome",
+        "name": "nome",
+        "cpf": "cpf",
+        "valor": "valor",
+        "valor do cartao": "valor",
+        "preco": "valor",
+        "preço": "valor",
+        "price": "valor",
+        "login": "cartao",
+        "email": "cartao",
+        "e-mail": "cartao",
+        "usuario": "cartao",
+        "usuário": "cartao",
+        "senha": "cvv",
+        "password": "cvv",
+        "pass": "cvv",
+        "perfil": "perfil",
+        "tela": "perfil",
+        "pin": "perfil",
     }
     blocks = re.split(r"\n\s*\n", raw_text.strip())
     accounts = []
@@ -666,7 +763,8 @@ def parse_restock_accounts(raw_text: str):
             mapped = field_aliases.get(key.strip().lower())
             if mapped:
                 fields[mapped] = value.strip()
-        if fields.get("login") and fields.get("senha"):
+
+        if fields.get("cartao") or fields.get("cvv") or fields.get("validade") or fields.get("bandeira") or fields.get("nivel") or fields.get("tipo") or fields.get("banco") or fields.get("pais") or fields.get("nome") or fields.get("cpf") or fields.get("valor"):
             accounts.append(fields)
         else:
             error_count += 1
@@ -711,10 +809,17 @@ async def handle_stock_category_selection(update: Update, context: ContextTypes.
         f"Categoria selecionada: {category_name}.\n\n"
         "Agora envie os dados para adicionar ao estoque.\n\n"
         "Exemplo:\n\n"
-        "login: cliente1@email.com\n"
-        "senha: Abc12345\n"
-        "validade: até 12/2026\n"
-        "perfil: Tela 2"
+        "cartao: 4111111111111111\n"
+        "cvv: 123\n"
+        "validade: 12/2028\n"
+        "bandeira: Visa\n"
+        "nivel: Gold\n"
+        "tipo: Crédito\n"
+        "banco: Banco do Brasil\n"
+        "pais: Brasil\n"
+        "nome: João Silva\n"
+        "cpf: 12345678900\n"
+        "valor: 50.00"
     )
 
 
