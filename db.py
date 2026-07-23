@@ -134,7 +134,7 @@ def deduct_balance(telegram_id: int, amount: float) -> bool:
 
 # ---------- Produtos / Estoque ----------
 
-def create_product(name: str, price: float) -> int:
+def create_product(name: str, price: float = 0.0) -> int:
     with get_conn() as conn:
         cur = conn.execute("INSERT INTO products (name, price) VALUES (?, ?)", (name, price))
         return cur.lastrowid

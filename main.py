@@ -687,11 +687,42 @@ async def handle_restock_accounts(update: Update, context: ContextTypes.DEFAULT_
     await update.message.reply_text(msg)
 
 
+async def handle_stock_category_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    category_name = update.message.text.strip().upper()
+    if not category_name:
+        await update.message.reply_text("Categoria inválida. Envie o nome da categoria.")
+        return
+
+    if category_name not in CATEGORIES:
+        await update.message.reply_text(
+            "Categoria inválida. Escolha uma das opções abaixo:\n\n"
+            + "\n".join(CATEGORIES)
+        )
+        return
+
+    product = db.get_product_by_name(category_name)
+    if product is None:
+        product_id = db.create_product(category_name, 0.0)
+        product = db.get_product(product_id)
+
+    context.user_data["awaiting"] = "restock_accounts"
+    context.user_data["restock_product_id"] = product["id"]
+    await update.message.reply_text(
+        f"Categoria selecionada: {category_name}.\n\n"
+        "Agora envie os dados para adicionar ao estoque.\n\n"
+        "Exemplo:\n\n"
+        "login: cliente1@email.com\n"
+        "senha: Abc12345\n"
+        "validade: até 12/2026\n"
+        "perfil: Tela 2"
+    )
+
+
 async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/stock -> lista todos os produtos e quantidades restantes"""
+    """/stock -> adiciona estoque em uma categoria, ou navega pelos itens de uma categoria."""
     if not await admin_only(update):
         return
-    # Se for chamado como '/stock <product_id>', abre o navegador de itens para essa categoria
+
     parts = update.message.text.split()
     if len(parts) >= 2:
         try:
@@ -699,18 +730,14 @@ async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await update.message.reply_text("Uso: /stock ou /stock <id_da_categoria>")
             return
-        # Reuse admin browsing view
         await admin_show_stock_browse(update, context, product_id, 0)
         return
 
-    products = db.list_active_products()
-    if not products:
-        await update.message.reply_text("Nenhum produto cadastrado.")
-        return
-    lines = [f"#{p['id']} {p['name']} — R$ {p['price']:.2f} — estoque: {p['qty']}" for p in products]
-    lines.append("")
-    lines.append("Use /stock <id_da_categoria> para navegar pelos itens e visualizar detalhes.")
-    await update.message.reply_text("📊 Estoque atual:\n\n" + "\n".join(lines))
+    context.user_data["awaiting"] = "stock_category_prompt"
+    await update.message.reply_text(
+        "📦 Para adicionar estoque, envie a categoria desejada.\n\n"
+        "Exemplos: AMEX, GOLD, NUBANK BLACK, PLATINUM"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -726,6 +753,8 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_email_input(update, context)
     elif awaiting == "cpf":
         await handle_cpf_input(update, context)
+    elif awaiting == "stock_category_prompt" and is_admin(update.effective_user.id):
+        await handle_stock_category_selection(update, context)
     elif awaiting == "restock_accounts" and is_admin(update.effective_user.id):
         await handle_restock_accounts(update, context)
 
@@ -812,7 +841,6 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("addproduct", cmd_addproduct))
     app.add_handler(CommandHandler("restock", cmd_restock))
     app.add_handler(CommandHandler("stock", cmd_stock))
     app.add_handler(CallbackQueryHandler(callback_router))
