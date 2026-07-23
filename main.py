@@ -25,16 +25,12 @@ from config import (
     BANNER_PATH,
     WELCOME_TEXT,
     TERMS_TEXT,
-    SUPPORT_URL,
 )
 from keyboards import (
     main_menu_keyboard,
     back_to_menu_keyboard,
-    admin_panel_keyboard,
-    falcone_admin_keyboard,
     sellers_keyboard,
     products_keyboard,
-    falcone_products_keyboard,
     product_browse_keyboard,
     check_payment_keyboard,
     mask_login,
@@ -46,30 +42,6 @@ logger = logging.getLogger(__name__)
 
 CPF_RE = re.compile(r"^\d{11}$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-FALCONE_ADMIN_OPTIONS = [
-    "AMEX",
-    "BLACK",
-    "BUSINESS",
-    "CLASSIC",
-    "CORPORATE T&E",
-    "ELO",
-    "GOLD",
-    "GOVERNMENT COMMER",
-    "INFINITE",
-    "MICRO BUSINESS",
-    "MIXED PRODUCT",
-    "NUBANK BLACK",
-    "NUBANK GOLD",
-    "NUBANK MICRO BUSINESS",
-    "NUBANK PLATINUM",
-    "PERSONAL",
-    "PLATINUM",
-    "PREPAID",
-    "PREPAID CLASSIC",
-    "SIGNATURE",
-    "STANDARD",
-    "WORLD",
-]
 
 
 def is_admin(user_id: int) -> bool:
@@ -131,72 +103,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        query = update.callback_query
-        user = query.from_user
-        user_row = db.get_or_create_user(user.id, user.full_name)
-        balance = user_row["balance"]
-        username = f"@{user.username}" if user.username else "@"
-        admin_text = "Sim" if is_admin(user.id) else "Não"
-        support_text = "Sim" if SUPPORT_URL else "Não"
-        created_at = user_row["created_at"] or "N/A"
-        purchase_count = db.get_user_purchase_count(user.id)
-        recharge_count = db.get_user_paid_recharge_count(user.id)
-
-        await render_text(
-            update,
-            context,
-            (
-                "👛 Suas Informações\n\n"
-                f"📛 Nome: {user.full_name}\n"
-                f"🌐 User: {username}\n"
-                f"👮‍♀️ Admin: {admin_text}\n"
-                f"⛑ Suporte: {support_text}\n"
-                "🚫 Banido: Não\n"
-                f"📅 Data de cadastro: {created_at}\n\n"
-                f"🆔 ID da carteira: {user.id}\n"
-                f"💰 Saldo: {balance:.2f}\n\n"
-                f"💳 Cartões comprados: {purchase_count}\n"
-                f"💠 Recargas com pix's: {recharge_count}"
-            ),
-            back_to_menu_keyboard(),
-        )
-    except Exception as e:
-        logger.exception(f"Erro ao exibir carteira do usuário {update.effective_user.id}")
-        await render_text(
-            update,
-            context,
-            "⚠️ Erro ao carregar suas informações. Tente novamente.",
-            back_to_menu_keyboard(),
-        )
+    query = update.callback_query
+    balance = db.get_balance(query.from_user.id)
+    await render_text(
+        update,
+        context,
+        f"👛 {BOT_NAME} — Sua carteira\n\n💰 Saldo: R$ {balance:.2f}",
+        main_menu_keyboard(),
+    )
 
 
 async def show_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await render_text(update, context, TERMS_TEXT, back_to_menu_keyboard())
-
-
-async def show_admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await render_text(update, context, "⚠️ Acesso restrito ao administrador.", back_to_menu_keyboard())
-        return
-    await render_text(update, context, "🛠️ Painel Administrativo", admin_panel_keyboard())
-
-
-async def show_falcone_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await render_text(update, context, "⚠️ Acess restrito ao administrador.", back_to_menu_keyboard())
-        return
-    products = db.list_active_products()
-    if not products:
-        await render_text(update, context, "Nenhum produto disponível no momento.", sellers_keyboard())
-        return
-    await render_text(
-        update,
-        context,
-        "🧩 Área Falcone - Produtos Disponíveis:",
-        falcone_products_keyboard(products),
-    )
-
 
 
 # ---------------------------------------------------------------------------
@@ -264,7 +182,7 @@ async def generate_pix_charge(update: Update, context: ContextTypes.DEFAULT_TYPE
             amount=amount,
             email=email,
             cpf=cpf,
-            description="💠Adicionar Saldo\nAdicione saldo para realizar suas compras",
+            description=f"Adicionar saldo - {BOT_NAME}",
         )
     except Exception as e:
         logger.exception("Erro ao criar pagamento Mercado Pago")
@@ -611,42 +529,31 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        data = update.callback_query.data
-        if data == "menu":
-            await send_main_menu(update, context)
-        elif data == "terms":
-            await show_terms(update, context)
-        elif data == "buy":
-            await show_sellers(update, context)
-        elif data == "seller_admin":
-            await show_admin_panel(update, context)
-        elif data == "admin_products":
-            await show_products(update, context)
-        elif data == "falcone_menu":
-            await show_falcone_admin(update, context)
-        elif data == "add_balance":
-            await start_add_balance(update, context)
-        elif data == "wallet":
-            await show_wallet(update, context)
-        elif data.startswith("product_"):
-            product_id = int(data.split("product_", 1)[1])
-            await show_product_browse(update, context, product_id, 0)
-        elif data.startswith("pnav_"):
-            _, product_id_str, index_str = data.split("_")
-            await show_product_browse(update, context, int(product_id_str), int(index_str))
-        elif data.startswith("confirm_"):
-            await confirm_purchase(update, context)
-        elif data.startswith("check_"):
-            await check_payment_callback(update, context)
-            return
-        await update.callback_query.answer()
-    except Exception as e:
-        logger.exception(f"Erro no callback router: {e}")
-        try:
-            await update.callback_query.answer("❌ Erro ao processar. Tente novamente.", show_alert=True)
-        except Exception:
-            logger.exception("Erro ao enviar mensagem de erro ao usuário")
+    data = update.callback_query.data
+    if data == "menu":
+        await send_main_menu(update, context)
+    elif data == "terms":
+        await show_terms(update, context)
+    elif data == "buy":
+        await show_sellers(update, context)
+    elif data == "seller_admin":
+        await show_products(update, context)
+    elif data == "add_balance":
+        await start_add_balance(update, context)
+    elif data == "wallet":
+        await show_wallet(update, context)
+    elif data.startswith("product_"):
+        product_id = int(data.split("product_", 1)[1])
+        await show_product_browse(update, context, product_id, 0)
+    elif data.startswith("pnav_"):
+        _, product_id_str, index_str = data.split("_")
+        await show_product_browse(update, context, int(product_id_str), int(index_str))
+    elif data.startswith("confirm_"):
+        await confirm_purchase(update, context)
+    elif data.startswith("check_"):
+        await check_payment_callback(update, context)
+        return
+    await update.callback_query.answer()
 
 
 def main():
@@ -666,4 +573,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

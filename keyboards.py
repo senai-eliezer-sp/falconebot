@@ -54,25 +54,6 @@ def back_to_menu_keyboard():
     )
 
 
-def admin_panel_keyboard():
-    return InlineKeyboardMarkup(
-        [
-            [InlineKeyboardButton("📦 Gerenciar Produtos", callback_data="admin_products")],
-            [InlineKeyboardButton("🧩 Área Falcone", callback_data="falcone_menu")],
-            [InlineKeyboardButton("⬅️ Menu Principal", callback_data="menu")],
-        ]
-    )
-
-
-def falcone_admin_keyboard(options):
-    rows = []
-    for index, label in enumerate(options):
-        rows.append([InlineKeyboardButton(label, callback_data=f"falcone_option_{index}")])
-    rows.append([InlineKeyboardButton("⬅️ Voltar", callback_data="seller_admin")])
-    rows.append([InlineKeyboardButton("🏠 Menu Principal", callback_data="menu")])
-    return InlineKeyboardMarkup(rows)
-
-
 def sellers_keyboard():
     return InlineKeyboardMarkup(
         [
