@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import re
+import unicodedata
 
 from telegram import Update
 from telegram.ext import (
@@ -708,63 +709,89 @@ async def cmd_restock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def parse_restock_accounts(raw_text: str):
-    """Faz o parse de vários blocos de cartão (separados por linha em branco), cada um
-    com campos 'label: valor'. Retorna (contas_validas, quantidade_de_blocos_com_erro)."""
+    """Faz o parse de vários blocos de cartão (separados por linha em branco), aceitando
+    formatos como 'campo: valor', 'campo = valor', 'campo valor' e aliases como login/senha.
+    Retorna (contas_validas, quantidade_de_blocos_com_erro)."""
+
+    def normalize_key(text: str) -> str:
+        normalized = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+        return re.sub(r"[^a-z0-9]+", "", normalized.lower())
+
     field_aliases = {
         "cartao": "cartao",
-        "cartão": "cartao",
+        "cartao": "cartao",
         "card": "cartao",
         "numero": "cartao",
-        "numero do cartao": "cartao",
+        "numerodocartao": "cartao",
         "cvv": "cvv",
         "cvc": "cvv",
         "validade": "validade",
-        "mes/ano": "validade",
+        "mesano": "validade",
         "vencimento": "validade",
         "bandeira": "bandeira",
         "flag": "bandeira",
         "nivel": "nivel",
-        "nível": "nivel",
+        "nivel": "nivel",
         "tipo": "tipo",
         "banco": "banco",
         "pais": "pais",
-        "país": "pais",
         "nome": "nome",
         "name": "nome",
         "cpf": "cpf",
         "valor": "valor",
-        "valor do cartao": "valor",
+        "valordocartao": "valor",
         "preco": "valor",
-        "preço": "valor",
         "price": "valor",
         "login": "cartao",
         "email": "cartao",
-        "e-mail": "cartao",
+        "email": "cartao",
         "usuario": "cartao",
-        "usuário": "cartao",
+        "user": "cartao",
+        "username": "cartao",
         "senha": "cvv",
         "password": "cvv",
         "pass": "cvv",
         "perfil": "perfil",
         "tela": "perfil",
         "pin": "perfil",
+        "conta": "cartao",
+        "account": "cartao",
+        "codigo": "cartao",
     }
+
     blocks = re.split(r"\n\s*\n", raw_text.strip())
     accounts = []
     error_count = 0
     for block in blocks:
         if not block.strip():
             continue
+
+        lines = [line.strip() for line in block.splitlines() if line.strip()]
+        if not lines:
+            continue
+
         fields = {}
-        for line in block.splitlines():
-            if ":" not in line:
-                continue
-            key, value = line.split(":", 1)
-            mapped = field_aliases.get(key.strip().lower())
+        for line in lines:
+            if ":" in line:
+                key, value = line.split(":", 1)
+            elif "=" in line:
+                key, value = line.split("=", 1)
+            else:
+                match = re.match(r"^([A-Za-zÀ-ÿ0-9_.-]+)\s+(.+)$", line)
+                if not match:
+                    continue
+                key, value = match.group(1), match.group(2)
+
+            mapped = field_aliases.get(normalize_key(key))
             if mapped:
                 fields[mapped] = value.strip()
 
-        if fields.get("cartao") or fields.get("cvv") or fields.get("validade") or fields.get("bandeira") or fields.get("nivel") or fields.get("tipo") or fields.get("banco") or fields.get("pais") or fields.get("nome") or fields.get("cpf") or fields.get("valor"):
+        if not fields:
+            first_value = lines[0].strip()
+            if first_value and ("@" in first_value or re.fullmatch(r"\d{3,19}", first_value)):
+                fields["cartao"] = first_value
+
+        if fields.get("cartao") or fields.get("cvv") or fields.get("validade") or fields.get("bandeira") or fields.get("nivel") or fields.get("tipo") or fields.get("banco") or fields.get("pais") or fields.get("nome") or fields.get("cpf") or fields.get("valor") or fields.get("perfil"):
             accounts.append(fields)
         else:
             error_count += 1
