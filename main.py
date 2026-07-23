@@ -34,6 +34,7 @@ from keyboards import (
     falcone_admin_keyboard,
     sellers_keyboard,
     products_keyboard,
+    falcone_products_keyboard,
     product_browse_keyboard,
     check_payment_keyboard,
     mask_login,
@@ -130,35 +131,44 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def show_wallet(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    user = query.from_user
-    user_row = db.get_or_create_user(user.id, user.full_name)
-    balance = user_row["balance"]
-    username = f"@{user.username}" if user.username else "@"
-    admin_text = "Sim" if is_admin(user.id) else "Não"
-    support_text = "Sim" if SUPPORT_URL else "Não"
-    created_at = user_row["created_at"] or "N/A"
-    purchase_count = db.get_user_purchase_count(user.id)
-    recharge_count = db.get_user_paid_recharge_count(user.id)
+    try:
+        query = update.callback_query
+        user = query.from_user
+        user_row = db.get_or_create_user(user.id, user.full_name)
+        balance = user_row["balance"]
+        username = f"@{user.username}" if user.username else "@"
+        admin_text = "Sim" if is_admin(user.id) else "Não"
+        support_text = "Sim" if SUPPORT_URL else "Não"
+        created_at = user_row["created_at"] or "N/A"
+        purchase_count = db.get_user_purchase_count(user.id)
+        recharge_count = db.get_user_paid_recharge_count(user.id)
 
-    await render_text(
-        update,
-        context,
-        (
-            "👛 Suas Informações\n\n"
-            f"📛 Nome: {user.full_name}\n"
-            f"🌐 User: {username}\n"
-            f"👮‍♀️ Admin: {admin_text}\n"
-            f"⛑ Suporte: {support_text}\n"
-            "🚫 Banido: Não\n"
-            f"📅 Data de cadastro: {created_at}\n\n"
-            f"🆔 ID da carteira: {user.id}\n"
-            f"💰 Saldo: {balance:.2f}\n\n"
-            f"💳 Cartões comprados: {purchase_count}\n"
-            f"💠 Recargas com pix's: {recharge_count}"
-        ),
-        back_to_menu_keyboard(),
-    )
+        await render_text(
+            update,
+            context,
+            (
+                "👛 Suas Informações\n\n"
+                f"📛 Nome: {user.full_name}\n"
+                f"🌐 User: {username}\n"
+                f"👮‍♀️ Admin: {admin_text}\n"
+                f"⛑ Suporte: {support_text}\n"
+                "🚫 Banido: Não\n"
+                f"📅 Data de cadastro: {created_at}\n\n"
+                f"🆔 ID da carteira: {user.id}\n"
+                f"💰 Saldo: {balance:.2f}\n\n"
+                f"💳 Cartões comprados: {purchase_count}\n"
+                f"💠 Recargas com pix's: {recharge_count}"
+            ),
+            back_to_menu_keyboard(),
+        )
+    except Exception as e:
+        logger.exception(f"Erro ao exibir carteira do usuário {update.effective_user.id}")
+        await render_text(
+            update,
+            context,
+            "⚠️ Erro ao carregar suas informações. Tente novamente.",
+            back_to_menu_keyboard(),
+        )
 
 
 async def show_terms(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -176,28 +186,17 @@ async def show_falcone_admin(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not is_admin(update.effective_user.id):
         await render_text(update, context, "⚠️ Acess restrito ao administrador.", back_to_menu_keyboard())
         return
+    products = db.list_active_products()
+    if not products:
+        await render_text(update, context, "Nenhum produto disponível no momento.", sellers_keyboard())
+        return
     await render_text(
         update,
         context,
-        "🧩 Área Falcone\n\nEscolha uma opção abaixo:",
-        falcone_admin_keyboard(FALCONE_ADMIN_OPTIONS),
+        "🧩 Área Falcone - Produtos Disponíveis:",
+        falcone_products_keyboard(products),
     )
 
-
-async def handle_falcone_option(update: Update, context: ContextTypes.DEFAULT_TYPE, option_index: int):
-    if not is_admin(update.effective_user.id):
-        await render_text(update, context, "⚠️ Acesso restrito ao administrador.", back_to_menu_keyboard())
-        return
-    if 0 <= option_index < len(FALCONE_ADMIN_OPTIONS):
-        label = FALCONE_ADMIN_OPTIONS[option_index]
-        await render_text(
-            update,
-            context,
-            f"✅ Você selecionou: {label}\n\nEnvie a lista completa das opções que você quiser e eu substituo estas placeholders.",
-            falcone_admin_keyboard(FALCONE_ADMIN_OPTIONS),
-        )
-    else:
-        await render_text(update, context, "⚠️ Opção inválida.", falcone_admin_keyboard(FALCONE_ADMIN_OPTIONS))
 
 
 # ---------------------------------------------------------------------------
@@ -612,38 +611,42 @@ async def text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = update.callback_query.data
-    if data == "menu":
-        await send_main_menu(update, context)
-    elif data == "terms":
-        await show_terms(update, context)
-    elif data == "buy":
-        await show_sellers(update, context)
-    elif data == "seller_admin":
-        await show_admin_panel(update, context)
-    elif data == "admin_products":
-        await show_products(update, context)
-    elif data == "falcone_menu":
-        await show_falcone_admin(update, context)
-    elif data.startswith("falcone_option_"):
-        option_index = int(data.rsplit("_", 1)[1])
-        await handle_falcone_option(update, context, option_index)
-    elif data == "add_balance":
-        await start_add_balance(update, context)
-    elif data == "wallet":
-        await show_wallet(update, context)
-    elif data.startswith("product_"):
-        product_id = int(data.split("product_", 1)[1])
-        await show_product_browse(update, context, product_id, 0)
-    elif data.startswith("pnav_"):
-        _, product_id_str, index_str = data.split("_")
-        await show_product_browse(update, context, int(product_id_str), int(index_str))
-    elif data.startswith("confirm_"):
-        await confirm_purchase(update, context)
-    elif data.startswith("check_"):
-        await check_payment_callback(update, context)
-        return
-    await update.callback_query.answer()
+    try:
+        data = update.callback_query.data
+        if data == "menu":
+            await send_main_menu(update, context)
+        elif data == "terms":
+            await show_terms(update, context)
+        elif data == "buy":
+            await show_sellers(update, context)
+        elif data == "seller_admin":
+            await show_admin_panel(update, context)
+        elif data == "admin_products":
+            await show_products(update, context)
+        elif data == "falcone_menu":
+            await show_falcone_admin(update, context)
+        elif data == "add_balance":
+            await start_add_balance(update, context)
+        elif data == "wallet":
+            await show_wallet(update, context)
+        elif data.startswith("product_"):
+            product_id = int(data.split("product_", 1)[1])
+            await show_product_browse(update, context, product_id, 0)
+        elif data.startswith("pnav_"):
+            _, product_id_str, index_str = data.split("_")
+            await show_product_browse(update, context, int(product_id_str), int(index_str))
+        elif data.startswith("confirm_"):
+            await confirm_purchase(update, context)
+        elif data.startswith("check_"):
+            await check_payment_callback(update, context)
+            return
+        await update.callback_query.answer()
+    except Exception as e:
+        logger.exception(f"Erro no callback router: {e}")
+        try:
+            await update.callback_query.answer("❌ Erro ao processar. Tente novamente.", show_alert=True)
+        except Exception:
+            logger.exception("Erro ao enviar mensagem de erro ao usuário")
 
 
 def main():
