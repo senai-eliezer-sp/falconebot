@@ -599,7 +599,7 @@ def _extract_stock_fields(item):
 
     card_num = raw_card
     if '|' in raw_card or '/' in raw_card or ';' in raw_card:
-        pipe_match = re.search(r"(\d{13,19})\s*[|/;:]\s*(\d{1,2})\s*[|/;:]\s*(\d{2,4})\s*[|/;:]\s*(\d{3,4})", raw_card)
+        pipe_match = re.search(r"(\d{13,19})\s*[|/;:]\s*(\d{1,2})\s*[|/;:]\s*(\d{2,4})\s*[|/;:]\s*(\d{3})\b", raw_card)
         if pipe_match:
             card_num = pipe_match.group(1)
             if not raw_val:
@@ -610,6 +610,33 @@ def _extract_stock_fields(item):
             card_match = re.search(r"(\d{13,19})", raw_card)
             if card_match:
                 card_num = card_match.group(1)
+
+    # CVV deve ter estritamente 3 dígitos
+    cvv_clean = re.search(r"\b(\d{3})\b", raw_cvv)
+    cvv_val = cvv_clean.group(1) if cvv_clean else (raw_cvv[:3] if len(raw_cvv) >= 3 else raw_cvv)
+
+    raw_nome = item.get('nome') or extra.get('nome') or ''
+    raw_cpf = item.get('cpf') or extra.get('cpf') or ''
+
+    # Remove SCORE e sujeiras ao final do campo
+    raw_nome = re.sub(r"(?:[|/-]?\s*SCORE\s*[:=]?\s*\d+)", "", str(raw_nome), flags=re.IGNORECASE).strip()
+    raw_cpf = re.sub(r"(?:[|/-]?\s*SCORE\s*[:=]?\s*\d+)", "", str(raw_cpf), flags=re.IGNORECASE).strip()
+
+    # Se o CPF estiver em branco mas o nome contiver um CPF de 11 dígitos:
+    cpf_val = raw_cpf
+    if not cpf_val:
+        cpf_found = re.search(r"\b(\d{11})\b|\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b", raw_nome)
+        if cpf_found:
+            cpf_val = re.sub(r"\D", "", cpf_found.group(0))
+
+    # Limpa o CPF e prefixos do campo Nome para não ficarem misturados
+    nome_val = raw_nome
+    if cpf_val and cpf_val in nome_val:
+        nome_val = nome_val.replace(cpf_val, "")
+    nome_val = re.sub(r"\b\d{11}\b", "", nome_val)
+    nome_val = re.sub(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", "", nome_val)
+    nome_val = re.sub(r"^(?:NOME|CPF)\s*[:=]?", "", nome_val, flags=re.IGNORECASE)
+    nome_val = _clean_text(re.sub(r"[|/-]+$", "", nome_val).strip())
 
     valor = item.get('valor')
     if valor is None and extra.get('valor'):
@@ -629,15 +656,15 @@ def _extract_stock_fields(item):
 
     return {
         'cartao': card_num,
-        'cvv': raw_cvv,
+        'cvv': cvv_val,
         'validade': raw_val,
         'bandeira': bandeira,
         'nivel': nivel,
         'tipo': tipo,
         'banco': banco,
         'pais': pais,
-        'nome': item.get('nome') or extra.get('nome'),
-        'cpf': item.get('cpf') or extra.get('cpf'),
+        'nome': nome_val,
+        'cpf': cpf_val,
         'valor': valor,
     }, extra
 
@@ -927,13 +954,17 @@ def _parse_restock_block(block_text: str) -> dict | None:
     if not text:
         return None
 
+    # Strip SCORE from the block text if present (e.g. SCORE: 800, SCORE 850, |SCORE: 700)
+    text = re.sub(r"(?:[|/-]?\s*SCORE\s*[:=]?\s*\d+)", "", text, flags=re.IGNORECASE).strip()
+
     card = ""
     month = ""
     year = ""
     cvv = ""
 
     # Match de padrão pipe/barra/espaco: cartao|mm|aa|cvv ou cartao|mm|aaaa|cvv
-    pipe_match = re.search(r"(\d{13,19})\s*[|/;:]\s*(\d{1,2})\s*[|/;:]\s*(\d{2,4})\s*[|/;:]\s*(\d{3,4})", text)
+    # CVV estritamente 3 dígitos (\d{3})
+    pipe_match = re.search(r"(\d{13,19})\s*[|/;:]\s*(\d{1,2})\s*[|/;:]\s*(\d{2,4})\s*[|/;:]\s*(\d{3})\b", text)
     if pipe_match:
         card = pipe_match.group(1)
         month = pipe_match.group(2)
@@ -953,7 +984,7 @@ def _parse_restock_block(block_text: str) -> dict | None:
             month = val_match.group(1)
             year = val_match.group(2)
 
-        cvv_match = re.search(r"(?:cvv|cvc)\s*[:=]?\s*(\d{3,4})", text, flags=re.IGNORECASE)
+        cvv_match = re.search(r"(?:cvv|cvc)\s*[:=]?\s*(\d{3})\b", text, flags=re.IGNORECASE) or re.search(r"\b(\d{3})\b", rest)
         if cvv_match:
             cvv = cvv_match.group(1)
 
@@ -962,8 +993,9 @@ def _parse_restock_block(block_text: str) -> dict | None:
     celular = ""
     email = ""
 
+    # 1. Busca por rotuladores explícitos (NOME:, CPF:, CELULAR:, EMAIL:)
     for key, value in re.findall(
-        r"(NOME|CPF|CELULAR|EMAIL)\s*:\s*(.+?)(?=(?:\s*-\s*(?:NOME|CPF|CELULAR|EMAIL):)|$)",
+        r"(NOME|CPF|CELULAR|EMAIL)\s*:\s*(.+?)(?=(?:\s*-\s*(?:NOME|CPF|CELULAR|EMAIL):)|\s*\||$)",
         rest,
         flags=re.IGNORECASE,
     ):
@@ -978,12 +1010,31 @@ def _parse_restock_block(block_text: str) -> dict | None:
         elif normalized_key == "email":
             email = cleaned_value
 
-    if not name and "-" in rest:
-        parts = [p.strip() for p in rest.split("-") if p.strip()]
-        if parts:
-            possible_name = parts[0]
-            if not any(k in possible_name.upper() for k in ["CPF:", "CELULAR:", "EMAIL:"]):
-                name = _clean_text(possible_name.replace("NOME:", ""))
+    # 2. Se CPF não foi capturado via rótulo "CPF:", busca 11 dígitos numéricos isolados
+    if not cpf:
+        cpf_match = re.search(r"\b(\d{11})\b|\b(\d{3}\.\d{3}\.\d{3}-\d{2})\b", rest)
+        if cpf_match:
+            cpf = re.sub(r"\D", "", cpf_match.group(0))
+
+    # 3. Se NOME não foi capturado via rótulo "NOME:", isola o nome do restante do texto
+    if not name:
+        clean_rest = rest
+        if cpf:
+            clean_rest = clean_rest.replace(cpf, "")
+            clean_rest = re.sub(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", "", clean_rest)
+        clean_rest = re.sub(r"(?:NOME|CPF|CELULAR|EMAIL|SCORE)\s*[:=]?", "", clean_rest, flags=re.IGNORECASE)
+        parts = [p.strip() for p in re.split(r"[|/-]", clean_rest) if p.strip()]
+        for p in parts:
+            if re.search(r"[A-Za-zÀ-ÖØ-öø-ÿ]", p):
+                name = _clean_text(p)
+                break
+
+    # Garante a separação estrita de Nome e CPF
+    if name and cpf and cpf in name:
+        name = _clean_text(name.replace(cpf, ""))
+    if name:
+        name = re.sub(r"\b\d{11}\b", "", name).strip()
+        name = _clean_text(re.sub(r"[|/-]+$", "", name).strip())
 
     validade = f"{month}/{year}" if month and year else ""
     bin_prefix = card[:6]
