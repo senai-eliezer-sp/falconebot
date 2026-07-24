@@ -16,7 +16,7 @@ from telegram.ext import (
 )
 
 import db
-import mercadopago_client
+import gateway_client
 from config import (
     BOT_TOKEN,
     BOT_NAME,
@@ -232,21 +232,21 @@ async def generate_pix_charge(update: Update, context: ContextTypes.DEFAULT_TYPE
     msg = await context.bot.send_message(chat.id, "⏳ Gerando cobrança Pix...")
 
     try:
-        resp = await mercadopago_client.create_pix_payment(
+        resp = await gateway_client.create_pix_charge(
             amount=amount,
-            email=email,
+            name=user.full_name or "Cliente",
             cpf=cpf,
             description=f"Adicionar saldo - {BOT_NAME}",
         )
+        parsed = gateway_client.parse_charge_response(resp)
     except Exception as e:
-        logger.exception("Erro ao criar pagamento Mercado Pago")
+        logger.exception("Erro ao criar pagamento no gateway")
         await msg.edit_text(f"❌ Erro ao gerar o Pix: {e}")
         return
 
-    payment_id = resp.get("id")
-    poi = resp.get("point_of_interaction", {}).get("transaction_data", {})
-    payment_code = poi.get("qr_code")
-    payment_code_b64 = poi.get("qr_code_base64")
+    payment_id = parsed["id"]
+    payment_code = parsed["pix_code"]
+    payment_code_b64 = parsed["qr_code_base64"]
 
     if not payment_id or not payment_code:
         await msg.edit_text(f"❌ Não foi possível gerar o Pix. Resposta: {resp}")
@@ -293,19 +293,23 @@ async def generate_pix_charge(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _confirm_payment_if_paid(id_transaction: str, user_id: int) -> tuple[bool, float]:
-    """Consulta o Mercado Pago; se aprovado e ainda não creditado, credita o saldo. Retorna (pago_agora, valor)."""
+    """Consulta o gateway de pagamento; se aprovado e ainda não creditado, credita o saldo. Retorna (pago_agora, valor)."""
     tx = db.get_transaction(id_transaction)
     if tx is None:
         return False, 0.0
     if tx["status"] == "PAID_OUT":
         return False, tx["amount"]  # já tinha sido creditado antes
 
-    status_resp = await mercadopago_client.get_payment_status(id_transaction)
-    status = status_resp.get("status", "")
-    if status == "approved":
-        db.mark_transaction_paid(id_transaction)
-        db.add_balance(user_id, tx["amount"])
-        return True, tx["amount"]
+    try:
+        status_resp = await gateway_client.get_charge_status(id_transaction)
+        parsed = gateway_client.parse_charge_response(status_resp)
+        status = parsed["status"]
+        if status in ["APPROVED", "PAID", "COMPLETED", "RECEIVED", "SETTLED", "SUCCESS"]:
+            db.mark_transaction_paid(id_transaction)
+            db.add_balance(user_id, tx["amount"])
+            return True, tx["amount"]
+    except Exception as e:
+        logger.warning(f"Erro ao verificar status da transação {id_transaction}: {e}")
     return False, tx["amount"]
 
 

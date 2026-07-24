@@ -80,7 +80,7 @@ Os principais arquivos do projeto são:
 - main.py: núcleo do bot, rotas, comandos, fluxo de compra e integração com o Telegram.
 - db.py: gerenciamento do banco SQLite, criação de tabelas e operações de usuários, produtos, estoque e transações.
 - config.py: carregamento de variáveis de ambiente e configurações gerais do projeto.
-- mercadopago_client.py: integração com a API do Mercado Pago para gerar cobranças Pix e consultar pagamentos.
+- gateway_client.py: integração com a API do Gateway de Pagamento Próprio para gerar cobranças Pix e consultar pagamentos.
 - keyboards.py: construção dos botões interativos do Telegram.
 - requirements.txt: dependências do projeto.
 - assets/: pasta para arquivos estáticos, como banners visuais do bot.
@@ -109,9 +109,9 @@ As principais tabelas são:
 - transactions: histórico das cobranças Pix e status do pagamento.
 - purchases: registro de cada compra do usuário.
 
-### 5.3 Mercado Pago
+### 5.3 Gateway de Pagamento Próprio
 
-A integração com Mercado Pago é feita por meio de requisições HTTP usando httpx.
+A integração com o Gateway de Pagamento Próprio é feita por meio de requisições HTTP usando httpx.
 
 O fluxo de pagamento usa:
 

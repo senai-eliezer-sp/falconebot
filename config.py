@@ -6,9 +6,13 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 BOT_NAME = os.getenv("BOT_NAME", "VIPFALCONE")
 
-# Mercado Pago
-MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN", "")
-MP_PAYMENTS_URL = "https://api.mercadopago.com/v1/payments"
+# Payment Gateway
+CLIENT_ID = os.getenv("CLIENT_ID", "vxp_3b3ba4815eaaeb55e71ee098")
+CLIENT_SECRET = os.getenv("CLIENT_SECRET", "vxs_9e58050f86be645e6ce94e7288974380852f99db48287181")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "vwh_a70c9b190e2aaa13b167b759d2274f7e098da223a65ca1c9")
+GATEWAY_BASE_URL = os.getenv("GATEWAY_BASE_URL", "https://vexapay.site").rstrip("/")
+CHARGES_URL = os.getenv("CHARGES_URL", f"{GATEWAY_BASE_URL}/api/v1/charges")
+
 
 # Admin
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
