@@ -673,30 +673,21 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
     lines = []
     lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
-    lines.append("✨ Detalhes do cartão")
     lines.append(f"💳 Cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
-    if stock_data.get('validade'):
-        lines.append(f"📆 Validade: {stock_data['validade']}")
+    lines.append(f"📆 Validade: {stock_data['validade'] if stock_data.get('validade') else '—'}")
     lines.append(f"🔐 Cvv: {mask_password(stock_data['cvv']) if stock_data.get('cvv') else '***'}")
     lines.append("")
-    if stock_data.get('bandeira'):
-        lines.append(f"🏳️ Bandeira: {stock_data['bandeira']}")
-    if stock_data.get('nivel'):
-        lines.append(f"💠 Nível: {stock_data['nivel']}")
-    if stock_data.get('tipo'):
-        lines.append(f"⚜️ Tipo: {stock_data['tipo']}")
-    if stock_data.get('banco'):
-        lines.append(f"🏛️ Banco: {stock_data['banco']}")
-    if stock_data.get('pais'):
-        lines.append(f"🌍 País: {stock_data['pais']}")
-
-    if stock_data.get('nome'):
-        lines.append("")
-        lines.append("👤Nome:")
-        lines.append(mask_person_name(stock_data['nome']))
-    if stock_data.get('cpf'):
-        lines.append("🪪 cpf:")
-        lines.append(mask_cpf(stock_data['cpf']))
+    lines.append(f"🏳️ Bandeira: {stock_data['bandeira'] if stock_data.get('bandeira') else '—'}")
+    lines.append(f"💠 Nível: {stock_data['nivel'] if stock_data.get('nivel') else '—'}")
+    lines.append(f"⚜️ Tipo: {stock_data['tipo'] if stock_data.get('tipo') else '—'}")
+    lines.append(f"🏛️ Banco: {stock_data['banco'] if stock_data.get('banco') else '—'}")
+    lines.append(f"🌍 Pais: {stock_data['pais'] if stock_data.get('pais') else '—'}")
+    lines.append("")
+    lines.append("👤Nome:")
+    lines.append(mask_person_name(stock_data['nome']) if stock_data.get('nome') else '—')
+    lines.append("")
+    lines.append("🪪 cpf:")
+    lines.append(mask_cpf(stock_data['cpf']) if stock_data.get('cpf') else '—')
 
     valor = stock_data.get('valor')
     if valor is None or str(valor).strip() == "":
@@ -708,7 +699,7 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
         price_val = 0.0
 
     lines.append("")
-    lines.append(f"💸 Valor: R$ {price_val:.2f}")
+    lines.append(f"💰 Valor: R$ {price_val:.2f}")
     lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
     lines.append("")
     lines.append("O conteúdo completo (cartão, cvv, nome, cpf) só é liberado após a confirmação da compra e se houver saldo suficiente.")
@@ -752,37 +743,33 @@ async def admin_show_stock_browse(update: Update, context: ContextTypes.DEFAULT_
     lines = []
     lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
-    lines.append("✨ Detalhes do cartão")
     lines.append(f"💳 Cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
-    if stock_data.get('validade'):
-        lines.append(f"📆 Validade: {stock_data['validade']}")
+    lines.append(f"📆 Validade: {stock_data['validade'] if stock_data.get('validade') else '—'}")
     lines.append("🔐 Cvv: ***")
     lines.append("")
-    if stock_data.get('bandeira'):
-        lines.append(f"🏳️ Bandeira: {stock_data['bandeira']}")
-    if stock_data.get('nivel'):
-        lines.append(f"💠 Nível: {stock_data['nivel']}")
-    if stock_data.get('tipo'):
-        lines.append(f"⚜️ Tipo: {stock_data['tipo']}")
-    if stock_data.get('banco'):
-        lines.append(f"🏛️ Banco: {stock_data['banco']}")
-    if stock_data.get('pais'):
-        lines.append(f"🌍 País: {stock_data['pais']}")
-
-    if stock_data.get('nome'):
-        lines.append("")
-        lines.append("👤Nome:")
-        lines.append(mask_person_name(stock_data['nome']))
-    if stock_data.get('cpf'):
-        lines.append("🪪 cpf:")
-        lines.append(mask_cpf(stock_data['cpf']))
+    lines.append(f"🏳️ Bandeira: {stock_data['bandeira'] if stock_data.get('bandeira') else '—'}")
+    lines.append(f"💠 Nível: {stock_data['nivel'] if stock_data.get('nivel') else '—'}")
+    lines.append(f"⚜️ Tipo: {stock_data['tipo'] if stock_data.get('tipo') else '—'}")
+    lines.append(f"🏛️ Banco: {stock_data['banco'] if stock_data.get('banco') else '—'}")
+    lines.append(f"🌍 Pais: {stock_data['pais'] if stock_data.get('pais') else '—'}")
+    lines.append("")
+    lines.append("👤Nome:")
+    lines.append(mask_person_name(stock_data['nome']) if stock_data.get('nome') else '—')
+    lines.append("")
+    lines.append("🪪 cpf:")
+    lines.append(mask_cpf(stock_data['cpf']) if stock_data.get('cpf') else '—')
 
     valor = stock_data.get('valor')
     if valor is None:
         valor = product['price']
+    try:
+        price_val = float(str(valor).replace(",", "."))
+    except (ValueError, TypeError):
+        price_val = 0.0
+
     lines.append("")
-    lines.append(f"💸 Valor: R$ {float(valor):.2f}")
-    lines.append(f"💰 Seu saldo: {balance:.2f}")
+    lines.append(f"💰 Valor: R$ {price_val:.2f}")
+    lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
 
     await render_text(update, context, "\n".join(lines), admin_stock_keyboard(product_id, index, total))
 
@@ -835,37 +822,27 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         f"✅ Compra concluída: {product['name']}",
         "",
-        "✨ Detalhes do cartão",
         f"💳 Cartão: {stock_data['cartao'] or '—'}",
+        f"📆 Validade: {stock_data['validade'] or '—'}",
+        f"🔐 Cvv: {stock_data['cvv'] or '—'}",
+        "",
+        f"🏳️ Bandeira: {stock_data['bandeira'] or '—'}",
+        f"💠 Nível: {stock_data['nivel'] or '—'}",
+        f"⚜️ Tipo: {stock_data['tipo'] or '—'}",
+        f"🏛️ Banco: {stock_data['banco'] or '—'}",
+        f"🌍 Pais: {stock_data['pais'] or '—'}",
+        "",
+        "👤Nome:",
+        f"{stock_data['nome'] or '—'}",
+        "",
+        "🪪 cpf:",
+        f"{stock_data['cpf'] or '—'}",
+        "",
+        f"💰 Valor: R$ {price_val:.2f}",
+        "",
+        f"💳 Cartões comprados: {purchases_count}",
+        f"💰 Seu saldo: R$ {new_balance:.2f}",
     ]
-    if stock_data.get('validade'):
-        lines.append(f"📆 Validade: {stock_data['validade']}")
-    if stock_data.get('cvv'):
-        lines.append(f"🔐 Cvv: {stock_data['cvv']}")
-    if stock_data.get('bandeira'):
-        lines.append(f"🏳️ Bandeira: {stock_data['bandeira']}")
-    if stock_data.get('nivel'):
-        lines.append(f"💠 Nível: {stock_data['nivel']}")
-    if stock_data.get('tipo'):
-        lines.append(f"⚜️ Tipo: {stock_data['tipo']}")
-    if stock_data.get('banco'):
-        lines.append(f"🏛️ Banco: {stock_data['banco']}")
-    if stock_data.get('pais'):
-        lines.append(f"🌍 País: {stock_data['pais']}")
-    if stock_data.get('nome'):
-        lines.append("")
-        lines.append(f"👤Nome: {stock_data['nome']}")
-    if stock_data.get('cpf'):
-        lines.append(f"🪪 cpf: {stock_data['cpf']}")
-
-    valor = stock_data.get('valor')
-    if valor is None:
-        valor = product['price']
-    lines.append("")
-    lines.append(f"💸 Valor: R$ {float(valor):.2f}")
-    lines.append("")
-    lines.append(f"💳 Cartões comprados: {purchases_count}")
-    lines.append(f"💰 Seu saldo: R$ {new_balance:.2f}")
 
     await render_text(update, context, "\n".join(lines), back_to_menu_keyboard())
 
