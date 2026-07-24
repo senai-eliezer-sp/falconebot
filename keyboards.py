@@ -67,7 +67,7 @@ def main_menu_keyboard():
             [InlineKeyboardButton("💳 Compre Aqui", callback_data="buy")],
             [
                 InlineKeyboardButton("💠 Adicione Saldo", callback_data="add_balance"),
-                InlineKeyboardButton("👝 Carteira", callback_data="wallet"),
+                InlineKeyboardButton("🗂️ Carteira", callback_data="wallet"),
             ],
             [
                 InlineKeyboardButton("💬 Grupo/Comunidade", url=GROUP_URL),

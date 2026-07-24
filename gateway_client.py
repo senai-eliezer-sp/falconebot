@@ -53,7 +53,13 @@ async def create_pix_charge(
 
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.post(CHARGES_URL, json=payload, headers=_headers())
-        resp.raise_for_status()
+        if resp.status_code == 404:
+            raise Exception(
+                f"Endpoint não encontrado (HTTP 404) na URL: {CHARGES_URL}\n"
+                f"Verifique no arquivo .env se a GATEWAY_BASE_URL ou CHARGES_URL está correta conforme a documentação do seu Gateway."
+            )
+        elif resp.is_error:
+            raise Exception(f"Erro no Gateway (HTTP {resp.status_code}): {resp.text}")
         return resp.json()
 
 
@@ -64,7 +70,9 @@ async def get_charge_status(charge_id: str) -> dict:
     url = f"{CHARGES_URL}/{charge_id}"
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(url, headers=_headers())
-        resp.raise_for_status()
+        if resp.is_error:
+            logger.error(f"Erro ao consultar status do Pix ({resp.status_code}): {resp.text}")
+            return {"status": "PENDING", "error": resp.text}
         return resp.json()
 
 

@@ -581,12 +581,35 @@ async def show_categories(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def _extract_stock_fields(item):
+    if item is None:
+        return {}, {}
+    if not isinstance(item, dict):
+        item = dict(item)
+
     extra = {}
     perf = item.get('perfil') or ''
     for line in (perf or '').splitlines():
         if ':' in line:
             k, v = line.split(':', 1)
             extra[k.strip().lower()] = v.strip()
+
+    raw_card = str(item.get('cartao') or item.get('login') or extra.get('cartao') or '').strip()
+    raw_cvv = str(item.get('cvv') or item.get('senha') or extra.get('cvv') or '').strip()
+    raw_val = str(item.get('validade') or extra.get('validade') or '').strip()
+
+    card_num = raw_card
+    if '|' in raw_card or '/' in raw_card or ';' in raw_card:
+        pipe_match = re.search(r"(\d{13,19})\s*[|/;:]\s*(\d{1,2})\s*[|/;:]\s*(\d{2,4})\s*[|/;:]\s*(\d{3,4})", raw_card)
+        if pipe_match:
+            card_num = pipe_match.group(1)
+            if not raw_val:
+                raw_val = f"{pipe_match.group(2)}/{pipe_match.group(3)}"
+            if not raw_cvv:
+                raw_cvv = pipe_match.group(4)
+        else:
+            card_match = re.search(r"(\d{13,19})", raw_card)
+            if card_match:
+                card_num = card_match.group(1)
 
     valor = item.get('valor')
     if valor is None and extra.get('valor'):
@@ -595,19 +618,29 @@ def _extract_stock_fields(item):
         except ValueError:
             valor = extra['valor']
 
+    bin_prefix = card_num[:6] if card_num and len(card_num) >= 6 else ""
+    rule = BIN_CATEGORY_RULES.get(bin_prefix, {})
+
+    bandeira = item.get('bandeira') or extra.get('bandeira') or rule.get('bandeira') or ''
+    nivel = item.get('nivel') or extra.get('nivel') or rule.get('nivel') or ''
+    tipo = item.get('tipo') or extra.get('tipo') or rule.get('tipo') or ''
+    banco = item.get('banco') or extra.get('banco') or rule.get('banco') or ''
+    pais = item.get('pais') or extra.get('pais') or rule.get('pais') or ''
+
     return {
-        'cartao': item.get('cartao') or item.get('login') or extra.get('cartao'),
-        'cvv': item.get('cvv') or item.get('senha') or extra.get('cvv'),
-        'validade': item.get('validade') or extra.get('validade'),
-        'bandeira': item.get('bandeira') or extra.get('bandeira'),
-        'nivel': item.get('nivel') or extra.get('nivel'),
-        'tipo': item.get('tipo') or extra.get('tipo'),
-        'banco': item.get('banco') or extra.get('banco'),
-        'pais': item.get('pais') or extra.get('pais'),
+        'cartao': card_num,
+        'cvv': raw_cvv,
+        'validade': raw_val,
+        'bandeira': bandeira,
+        'nivel': nivel,
+        'tipo': tipo,
+        'banco': banco,
+        'pais': pais,
         'nome': item.get('nome') or extra.get('nome'),
         'cpf': item.get('cpf') or extra.get('cpf'),
         'valor': valor,
     }, extra
+
 
 
 async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, index: int):
@@ -768,19 +801,32 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_product_browse(update, context, product_id, 0)
         return
 
-    if not db.deduct_balance(user_id, product["price"]):
+    stock_data, _ = _extract_stock_fields(item)
+    valor = stock_data.get('valor')
+    if valor is None or str(valor).strip() == "":
+        valor = product['price']
+
+    try:
+        price_val = float(str(valor).replace(",", "."))
+    except (ValueError, TypeError):
+        price_val = float(product['price'])
+
+    if price_val <= 0:
+        price_val = float(product['price'])
+
+    if not db.deduct_balance(user_id, price_val):
         await query.answer("Saldo insuficiente. Adicione saldo antes de comprar.", show_alert=True)
         return
 
     claimed = db.claim_specific_stock_item(item["id"], user_id)
     if claimed is None:
         # Alguém comprou esse item específico entre a navegação e a confirmação -> estorna
-        db.add_balance(user_id, product["price"])
+        db.add_balance(user_id, price_val)
         await query.answer("Esse item acabou de ser vendido para outra pessoa. Veja outro.", show_alert=True)
         await show_product_browse(update, context, product_id, 0)
         return
 
-    db.record_purchase(user_id, product_id, claimed["id"], product["price"])
+    db.record_purchase(user_id, product_id, claimed["id"], price_val)
     # Mostrar os dados completos para o comprador
     new_balance = db.get_balance(user_id)
     purchases_count = db.get_purchases_count(user_id)
@@ -1094,7 +1140,8 @@ async def handle_stock_category_selection(update: Update, context: ContextTypes.
 
     product = db.get_product_by_name(category_name)
     if product is None:
-        product_id = db.create_product(category_name, 0.0)
+        price = DEFAULT_CATEGORY_PRICES.get(category_name, 0.0)
+        product_id = db.create_product(category_name, price)
         product = db.get_product(product_id)
 
     context.user_data["awaiting"] = "restock_accounts"
