@@ -389,69 +389,181 @@ CATEGORIES = [
     "WORLD",
 ]
 
-BIN_CATEGORY_RULES = {
-    "233026": {
-        "category": "MICRO BUSINESS",
+CATEGORY_RULES = {
+    "MICRO BUSINESS": {
         "bandeira": "mastercard",
         "nivel": "micro business",
         "tipo": "credit",
-        "banco": "banco inter, s.a.",
         "pais": "brazil",
-        "valor": 19.90,
+        "valor": 45.00,
+        "bins": {
+            "233026": {"banco": "banco inter, s.a."},
+            "250031": {"banco": "banco inter, s.a."},
+        },
     },
-    "250031": {
-        "category": "MICRO BUSINESS",
-        "bandeira": "mastercard",
-        "nivel": "micro business",
-        "tipo": "credit",
-        "banco": "banco inter, s.a.",
-        "pais": "brazil",
-        "valor": 19.90,
-    },
-    "539090": {
-        "category": "MIXED PRODUCT",
+    "MIXED PRODUCT": {
         "bandeira": "mastercard",
         "nivel": "mixed product",
         "tipo": "credit",
-        "banco": "itau unibanco, s.a.",
         "pais": "brazil",
-        "valor": 19.90,
+        "valor": 75.00,
+        "bins": {
+            "539090": {"banco": "itau unibanco, s.a."},
+        },
     },
-    "520048": {
-        "category": "NUBANK BLACK",
+    "NUBANK BLACK": {
         "bandeira": "mastercard",
         "nivel": "nubank black",
         "tipo": "credit",
-        "banco": "nu pagamentos sa",
         "pais": "brazil",
-        "valor": 19.90,
+        "valor": 130.00,
+        "bins": {
+            "520048": {"banco": "nu pagamentos sa"},
+        },
     },
-    "550209": {
-        "category": "NUBANK GOLD",
+    "NUBANK GOLD": {
         "bandeira": "mastercard",
         "nivel": "nubank gold",
         "tipo": "credit",
-        "banco": "nu pagamentos sa",
         "pais": "brazil",
-        "valor": 19.90,
+        "valor": 30.00,
+        "bins": {
+            "550209": {"banco": "nu pagamentos sa"},
+        },
     },
-    "516292": {
-        "category": "NUBANK PLATINUM",
+    "NUBANK PLATINUM": {
         "bandeira": "mastercard",
         "nivel": "nubank platinum",
         "tipo": "credit",
-        "banco": "nu pagamentos sa",
         "pais": "brazil",
-        "valor": 19.90,
+        "valor": 35.00,
+        "bins": {
+            "516292": {"banco": "nu pagamentos sa"},
+        },
+    },
+    "AMEX": {
+        "bandeira": "american express",
+        "nivel": "amex",
+        "tipo": "credit",
+        "pais": "brazil",
+        "valor": 25.00,
+        "bins": {
+            "374769": {"banco": "banco bradesco"},
+            "374768": {"banco": "banco bradesco"},
+            "377169": {"banco": "banco bradesco"},
+            "376522": {"banco": "banco bradesco"},
+        },
+    },
+    "BLACK": {
+        "bandeira": "mastercard",
+        "nivel": "black",
+        "tipo": "credit",
+        "pais": "brazil",
+        "valor": 50.00,
+        "bins": {
+            "523431": {"banco": "itau unibanco, s.a."},
+            "553665": {"banco": "itau unibanco, s.a."},
+            "559337": {"banco": "itau unibanco, s.a."},
+            "512215": {"banco": "itau unibanco, s.a."},
+            "543960": {"banco": "itau unibanco, s.a."},
+            "531249": {"banco": "itau unibanco, s.a."},
+            "553636": {"banco": "itau unibanco, s.a."},
+            "522840": {"banco": "banco santander (brasil), s.a."},
+            "548083": {"banco": "banco santander (brasil), s.a."},
+            "534696": {"banco": "banco c6 sa"},
+            "554762": {"banco": "banco c6 sa"},
+            "538111": {"banco": "banco cooperativo sicredi sa"},
+            "512267": {"banco": "banco cooperativo sicredi sa"},
+        },
+    },
+    "BUSINESS": {
+        "bandeira": "visa",
+        "nivel": "business",
+        "tipo": "credit",
+        "pais": "brazil",
+        "valor": 60.00,
+        "bins": {
+            "424032": {"banco": "sutton bank", "pais": "united states"},
+            "499817": {"banco": "cora sociedade de credito direto, s.a."},
+            "498448": {"banco": "neon pagamentos, s.a."},
+            "485619": {"banco": "neon pagamentos, s.a."},
+            "480632": {"banco": "banco bradesco, s.a."},
+            "477587": {"banco": "stone cartoes instituicao de pagamento, s.a."},
+            "496045": {"banco": "banco cooperativo sicredi, s.a."},
+            "466197": {"banco": "banco cooperativo sicredi, s.a."},
+            "433178": {"banco": "pagseguro internet s.a"},
+            "489414": {"banco": "pagseguro internet s.a"},
+        },
+    },
+    "CORPORATE T&E": {
+        "bandeira": "visa",
+        "nivel": "corporate t&e",
+        "tipo": "credit",
+        "pais": "brazil",
+        "valor": 55.00,
+        "bins": {
+            "433876": {"banco": "biz instituicao de pagamento ltda."},
+        },
+    },
+    "ELO": {
+        "bandeira": "elo",
+        "nivel": "elo",
+        "tipo": "credit",
+        "pais": "brazil",
+        "valor": 40.00,
+        "bins": {
+            "506741": {"banco": "caixa economica federal"},
+            "650507": {"banco": "caixa economica federal"},
+            "650512": {"banco": "caixa economica federal"},
+            "655000": {"banco": "banco bradesco sa"},
+            "650485": {"banco": "banco bradesco sa"},
+            "650486": {"banco": "banco bradesco sa"},
+            "650569": {"banco": "banco pan sa"},
+            "650952": {"banco": "banco arbi sa"},
+            "655036": {"banco": "pernambucanas financiadora sa cred fin e investimento"},
+        },
+    },
+    "GOLD": {
+        "bandeira": "visa",
+        "nivel": "gold",
+        "tipo": "credit",
+        "pais": "brazil",
+        "valor": 35.00,
+        "bins": {
+            "410863": {"banco": "banco santander, s.a."},
+            "548514": {"banco": "itau unibanco, s.a."},
+            "549202": {"banco": "itau unibanco, s.a."},
+            "516306": {"banco": "itau unibanco, s.a."},
+            "530994": {"banco": "itau unibanco, s.a."},
+            "498407": {"banco": "banco do brasil, s.a."},
+            "555507": {"banco": "banco inter, s.a."},
+            "478307": {"banco": "itau unibanco holding, s.a."},
+            "459078": {"banco": "itau unibanco holding, s.a."},
+            "543966": {"banco": "banco votorantim s/a"},
+            "407843": {"banco": "mercado pago instituicao de pagamento ltda."},
+            "459384": {"banco": "caixa economica federal"},
+            "455184": {"banco": "banco bradesco, s.a."},
+        },
     },
 }
 
+BIN_CATEGORY_RULES = {}
+for category, config in CATEGORY_RULES.items():
+    for bin_prefix, bank_config in config["bins"].items():
+        bank_name = bank_config.get("banco", "")
+        pais = bank_config.get("pais", config["pais"])
+        BIN_CATEGORY_RULES[bin_prefix] = {
+            "category": category,
+            "bandeira": config["bandeira"],
+            "nivel": config["nivel"],
+            "tipo": config["tipo"],
+            "banco": bank_name,
+            "pais": pais,
+            "valor": config["valor"],
+        }
+
 DEFAULT_CATEGORY_PRICES = {
-    "MICRO BUSINESS": 19.90,
-    "MIXED PRODUCT": 19.90,
-    "NUBANK BLACK": 19.90,
-    "NUBANK GOLD": 19.90,
-    "NUBANK PLATINUM": 19.90,
+    category: config["valor"] for category, config in CATEGORY_RULES.items()
 }
 
 
@@ -947,7 +1059,7 @@ async def handle_stock_category_selection(update: Update, context: ContextTypes.
 
 
 async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """/stock -> adiciona estoque em uma categoria, ou navega pelos itens de uma categoria."""
+    """/stock -> processa automaticamente os blocos enviados e distribui por categoria com base no BIN."""
     if not await admin_only(update):
         return
 
@@ -955,19 +1067,15 @@ async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     parts = text.split(None, 1)
     if len(parts) >= 2:
         payload = parts[1].strip()
-        try:
-            product_id = int(payload)
-        except ValueError:
-            await handle_restock_accounts(update, context, payload=payload)
-            return
-        await admin_show_stock_browse(update, context, product_id, 0)
+        await handle_restock_accounts(update, context, payload=payload)
         return
 
-    context.user_data["awaiting"] = "stock_category_prompt"
+    context.user_data["awaiting"] = "restock_accounts"
     await update.message.reply_text(
-        "📦 Para adicionar estoque, envie a categoria desejada ou cole o bloco de dados diretamente.\n\n"
-        "Exemplos: AMEX, GOLD, NUBANK BLACK, PLATINUM\n\n"
-        "Ou envie um bloco como: 5526933079536203|07|2028|210 NOME: ..."
+        "📦 Envie os blocos de dados para processamento automático.\n\n"
+        "O bot vai ler os 6 primeiros números do cartão, identificar a categoria correspondente e organizar os dados automaticamente.\n\n"
+        "Exemplo de entrada:\n"
+        "5526933079536203|07|2028|210 NOME: Isadora Kiebler - CPF: 12205144979 - CELULAR: +5547992534296 - EMAIL: isadorakieber@hotmail.com"
     )
 
 

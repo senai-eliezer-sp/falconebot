@@ -64,17 +64,17 @@ def mask_cpf(cpf: str) -> str:
 def main_menu_keyboard():
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🛒 Compre Aqui", callback_data="buy")],
+            [InlineKeyboardButton("💳 Compre Aqui", callback_data="buy")],
             [
-                InlineKeyboardButton("💳 Adicione Saldo", callback_data="add_balance"),
-                InlineKeyboardButton("👛 Carteira", callback_data="wallet"),
+                InlineKeyboardButton("💠 Adicione Saldo", callback_data="add_balance"),
+                InlineKeyboardButton("👝 Carteira", callback_data="wallet"),
             ],
             [
                 InlineKeyboardButton("💬 Grupo/Comunidade", url=GROUP_URL),
                 InlineKeyboardButton("📢 Canal de Avisos", url=ANNOUNCEMENTS_URL),
             ],
             [
-                InlineKeyboardButton("🛟 Suporte/Atendimento", url=SUPPORT_URL),
+                InlineKeyboardButton("⚠️ Suporte/Atendimento", url=SUPPORT_URL),
                 InlineKeyboardButton("📄 Termos de Troca", callback_data="terms"),
             ],
         ]
