@@ -81,8 +81,57 @@ def init_db():
 
 
 def _migrate_stock_table(conn):
-    """Adiciona as novas colunas em bancos criados antes desta versão."""
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(stock)").fetchall()}
+    """Adiciona as novas colunas e ajusta tabelas criadas em versões anteriores."""
+    table_info = conn.execute("PRAGMA table_info(stock)").fetchall()
+    existing = {row["name"] for row in table_info}
+
+    # Se o banco de dados antigo possuía a coluna 'code' com NOT NULL, precisamos removê-la
+    if "code" in existing:
+        try:
+            conn.execute("ALTER TABLE stock DROP COLUMN code")
+        except Exception:
+            # Fallback seguro para versões antigas do SQLite que não suportam DROP COLUMN
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS stock_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    product_id INTEGER NOT NULL REFERENCES products(id),
+                    login TEXT,
+                    senha TEXT,
+                    cartao TEXT,
+                    cvv TEXT,
+                    validade TEXT,
+                    bandeira TEXT,
+                    nivel TEXT,
+                    tipo TEXT,
+                    banco TEXT,
+                    pais TEXT,
+                    nome TEXT,
+                    cpf TEXT,
+                    valor REAL,
+                    perfil TEXT,
+                    is_sold INTEGER NOT NULL DEFAULT 0,
+                    sold_to INTEGER,
+                    sold_at TEXT
+                )
+                """
+            )
+            common_cols = [
+                c for c in existing
+                if c != "code" and c in {
+                    "id", "product_id", "login", "senha", "cartao", "cvv", "validade",
+                    "bandeira", "nivel", "tipo", "banco", "pais", "nome", "cpf",
+                    "valor", "perfil", "is_sold", "sold_to", "sold_at"
+                }
+            ]
+            cols_str = ", ".join(common_cols)
+            if cols_str:
+                conn.execute(f"INSERT INTO stock_new ({cols_str}) SELECT {cols_str} FROM stock")
+            conn.execute("DROP TABLE stock")
+            conn.execute("ALTER TABLE stock_new RENAME TO stock")
+            # Recarrega as colunas existentes após a recriação da tabela
+            existing = {row["name"] for row in conn.execute("PRAGMA table_info(stock)").fetchall()}
+
     for column, column_type in {
         "login": "TEXT",
         "senha": "TEXT",
@@ -101,6 +150,7 @@ def _migrate_stock_table(conn):
     }.items():
         if column not in existing:
             conn.execute(f"ALTER TABLE stock ADD COLUMN {column} {column_type}")
+
 
 
 # ---------- Usuários ----------
