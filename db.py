@@ -235,7 +235,7 @@ def get_product(product_id: int):
 
 def get_product_by_name(name: str):
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM products WHERE name = ?", (name,)).fetchone()
+        return conn.execute("SELECT * FROM products WHERE UPPER(name) = UPPER(?)", (name,)).fetchone()
 
 
 def get_available_count(product_id: int) -> int:

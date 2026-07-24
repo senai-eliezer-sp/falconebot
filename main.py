@@ -889,31 +889,46 @@ def _parse_restock_block(block_text: str) -> dict | None:
     if not text:
         return None
 
-    match = re.match(r"^(\d{13,19})\s*\|\s*(\d{1,2})\s*\|\s*(\d{2,4})\s*\|\s*(\d{3,4})", text)
-    if not match:
-        fallback_match = re.match(r"^(\d{13,19})", text)
-        if not fallback_match:
-            return None
-        card = fallback_match.group(1)
-        month = ""
-        year = ""
-        cvv = ""
-    else:
-        card = match.group(1)
-        month = match.group(2)
-        year = match.group(3)
-        cvv = match.group(4)
+    card = ""
+    month = ""
+    year = ""
+    cvv = ""
 
-    rest = text[match.end() if match else len(card):].strip() if match else text[len(card):].strip()
-    if not rest:
-        rest = ""
+    # Match de padrão pipe/barra/espaco: cartao|mm|aa|cvv ou cartao|mm|aaaa|cvv
+    pipe_match = re.search(r"(\d{13,19})\s*[|/;:]\s*(\d{1,2})\s*[|/;:]\s*(\d{2,4})\s*[|/;:]\s*(\d{3,4})", text)
+    if pipe_match:
+        card = pipe_match.group(1)
+        month = pipe_match.group(2)
+        year = pipe_match.group(3)
+        cvv = pipe_match.group(4)
+        rest = text[pipe_match.end():].strip()
+    else:
+        # Busca o número do cartão (13 a 19 dígitos)
+        card_match = re.search(r"(\d{13,19})", text)
+        if not card_match:
+            return None
+        card = card_match.group(1)
+        rest = text.replace(card, "", 1).strip()
+
+        val_match = re.search(r"\b(0[1-9]|1[0-2])\s*[/|-]\s*(20\d{2}|\d{2})\b", text)
+        if val_match:
+            month = val_match.group(1)
+            year = val_match.group(2)
+
+        cvv_match = re.search(r"(?:cvv|cvc)\s*[:=]?\s*(\d{3,4})", text, flags=re.IGNORECASE)
+        if cvv_match:
+            cvv = cvv_match.group(1)
 
     name = ""
     cpf = ""
     celular = ""
     email = ""
 
-    for key, value in re.findall(r"(NOME|CPF|CELULAR|EMAIL)\s*:\s*(.+?)(?=(?:\s*-\s*(?:NOME|CPF|CELULAR|EMAIL):)|$)", rest, flags=re.IGNORECASE):
+    for key, value in re.findall(
+        r"(NOME|CPF|CELULAR|EMAIL)\s*:\s*(.+?)(?=(?:\s*-\s*(?:NOME|CPF|CELULAR|EMAIL):)|$)",
+        rest,
+        flags=re.IGNORECASE,
+    ):
         normalized_key = key.strip().lower()
         cleaned_value = _clean_text(value)
         if normalized_key == "nome":
@@ -928,7 +943,9 @@ def _parse_restock_block(block_text: str) -> dict | None:
     if not name and "-" in rest:
         parts = [p.strip() for p in rest.split("-") if p.strip()]
         if parts:
-            name = _clean_text(parts[0].replace("NOME:", ""))
+            possible_name = parts[0]
+            if not any(k in possible_name.upper() for k in ["CPF:", "CELULAR:", "EMAIL:"]):
+                name = _clean_text(possible_name.replace("NOME:", ""))
 
     validade = f"{month}/{year}" if month and year else ""
     bin_prefix = card[:6]
@@ -959,8 +976,34 @@ def _parse_restock_block(block_text: str) -> dict | None:
 
 
 def parse_restock_accounts(raw_text: str):
-    """Faz o parse de vários blocos de cartão, separando os dados e categorizando por BIN."""
-    blocks = re.split(r"\n\s*\n", raw_text.strip())
+    """
+    Faz o parse de múltiplos blocos/linhas de cartão enviados de uma só vez.
+    Garante que CADA linha ou bloco contendo um cartão (13 a 19 dígitos)
+    seja processado individualmente, verificando os 6 primeiros dígitos (BIN).
+    """
+    lines = raw_text.strip().splitlines()
+    blocks = []
+    current_block = []
+
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            if current_block:
+                blocks.append("\n".join(current_block))
+                current_block = []
+            continue
+
+        # Se a linha contém um cartão (13 a 19 dígitos)
+        has_card = bool(re.search(r"\b\d{13,19}\b", stripped) or re.search(r"\d{13,19}", stripped))
+        if has_card and current_block:
+            blocks.append("\n".join(current_block))
+            current_block = [stripped]
+        else:
+            current_block.append(stripped)
+
+    if current_block:
+        blocks.append("\n".join(current_block))
+
     accounts = []
     error_count = 0
     for block in blocks:
@@ -991,18 +1034,15 @@ async def handle_restock_accounts(update: Update, context: ContextTypes.DEFAULT_
         selected_category_name = selected_product["name"] if selected_product else None
 
         for account in accounts:
-            category_name = account.get("category") or selected_category_name or "UNIDENTIFIED"
-            if category_name == "UNIDENTIFIED" and selected_category_name:
-                category_name = selected_category_name
+            category_name = account.get("category") or "UNIDENTIFIED"
+            if category_name == "UNIDENTIFIED":
+                category_name = selected_category_name or "STANDARD"
             account["category"] = category_name
             grouped_accounts.setdefault(category_name, []).append(account)
 
         inserted_total = 0
         inserted_categories = []
         for category_name, category_accounts in grouped_accounts.items():
-            if category_name == "UNIDENTIFIED":
-                continue
-
             product = db.get_product_by_name(category_name)
             if product is None:
                 price = DEFAULT_CATEGORY_PRICES.get(category_name, 0.0)
@@ -1158,12 +1198,18 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await render_text(update, context, f"{name} — estoque: 0\n\nNenhum produto cadastrado para essa categoria.", back_to_menu_keyboard())
                 return
             await show_product_browse(update, context, prod["id"], 0)
-        elif data.startswith("pnav_"):
-            _, product_id_str, index_str = data.split("_")
-            await show_product_browse(update, context, int(product_id_str), int(index_str))
         elif data.startswith("pnav_admin_"):
-            _, product_id_str, index_str = data.split("_")
-            await admin_show_stock_browse(update, context, int(product_id_str), int(index_str))
+            parts = data.split("_")
+            if len(parts) >= 4:
+                product_id = int(parts[2])
+                index = int(parts[3])
+                await admin_show_stock_browse(update, context, product_id, index)
+        elif data.startswith("pnav_"):
+            parts = data.split("_")
+            if len(parts) >= 3:
+                product_id = int(parts[1])
+                index = int(parts[2])
+                await show_product_browse(update, context, product_id, index)
         elif data.startswith("confirm_"):
             await confirm_purchase(update, context)
         elif data.startswith("check_"):
