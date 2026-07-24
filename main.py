@@ -613,16 +613,25 @@ def _extract_stock_fields(item):
 async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE, product_id: int, index: int):
     query = update.callback_query
     product = db.get_product(product_id)
+    if product is None:
+        await render_text(update, context, "⚠️ Produto não encontrado.", back_to_menu_keyboard())
+        return
+
     total = db.get_available_count(product_id)
 
     if total == 0:
-        await query.answer("Produto esgotado no momento.", show_alert=True)
+        await render_text(
+            update,
+            context,
+            f"📦 {product['name']}\n\n⚠️ Este produto está esgotado no momento.",
+            back_to_menu_keyboard(),
+        )
         return
 
     index = max(0, min(index, total - 1))
     item = db.get_stock_item_at_index(product_id, index)
     if item is None:
-        await query.answer("Item não encontrado.", show_alert=True)
+        await render_text(update, context, "⚠️ Item de estoque não encontrado.", back_to_menu_keyboard())
         return
 
     balance = db.get_balance(query.from_user.id)
@@ -657,11 +666,17 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
         lines.append(mask_cpf(stock_data['cpf']))
 
     valor = stock_data.get('valor')
-    if valor is None:
+    if valor is None or str(valor).strip() == "":
         valor = product['price']
+
+    try:
+        price_val = float(str(valor).replace(",", "."))
+    except (ValueError, TypeError):
+        price_val = 0.0
+
     lines.append("")
-    lines.append(f"💸 Valor: R$ {float(valor):.2f}")
-    lines.append(f"💰 Seu saldo: {balance:.2f}")
+    lines.append(f"💸 Valor: R$ {price_val:.2f}")
+    lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
     lines.append("")
     lines.append("O conteúdo completo (cartão, cvv, nome, cpf) só é liberado após a confirmação da compra e se houver saldo suficiente.")
 
@@ -1221,6 +1236,12 @@ async def callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif data.startswith("admin_virgin_"):
             await query.answer("Marcado como Virgem.", show_alert=False)
             return
+    except Exception as exc:
+        logger.exception(f"Erro no callback_router: {exc}")
+        try:
+            await query.answer("Ocorreu um erro ao processar. Tente novamente.", show_alert=True)
+        except Exception:
+            pass
     finally:
         user_data.pop("_cb_locked", None)
 

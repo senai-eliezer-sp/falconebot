@@ -235,7 +235,16 @@ def get_product(product_id: int):
 
 def get_product_by_name(name: str):
     with get_conn() as conn:
-        return conn.execute("SELECT * FROM products WHERE UPPER(name) = UPPER(?)", (name,)).fetchone()
+        return conn.execute(
+            """
+            SELECT p.*, (SELECT COUNT(*) FROM stock s WHERE s.product_id = p.id AND s.is_sold = 0) AS qty
+            FROM products p
+            WHERE UPPER(p.name) = UPPER(?)
+            ORDER BY qty DESC, p.id DESC
+            LIMIT 1
+            """,
+            (name,),
+        ).fetchone()
 
 
 def get_available_count(product_id: int) -> int:
