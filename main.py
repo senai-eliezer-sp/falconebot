@@ -631,12 +631,16 @@ def _extract_stock_fields(item):
 
     # Limpa o CPF e prefixos do campo Nome para não ficarem misturados
     nome_val = raw_nome
+    # Remove o CPF (11 dígitos) do campo nome
     if cpf_val and cpf_val in nome_val:
         nome_val = nome_val.replace(cpf_val, "")
-    nome_val = re.sub(r"\b\d{11}\b", "", nome_val)
-    nome_val = re.sub(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", "", nome_val)
-    nome_val = re.sub(r"^(?:NOME|CPF)\s*[:=]?", "", nome_val, flags=re.IGNORECASE)
-    nome_val = _clean_text(re.sub(r"[|/-]+$", "", nome_val).strip())
+    # Remove qualquer sequência de dígitos que possa estar misturada (CPF, celular, score etc.)
+    nome_val = re.sub(r"\b\d{9,}\b", "", nome_val)           # sequências longas de números (>=9 dígitos)
+    nome_val = re.sub(r"\b\d{3}\.\d{3}\.\d{3}-\d{2}\b", "", nome_val)  # CPF formatado
+    nome_val = re.sub(r"\+?\d{1,3}[\s-]?\(?\d{2,3}\)?[\s-]?\d{4,5}[\s-]?\d{4}", "", nome_val)  # celular/telefone
+    nome_val = re.sub(r"^(?:NOME|CPF|CELULAR|EMAIL|SCORE)\s*[:=]?", "", nome_val, flags=re.IGNORECASE)
+    nome_val = re.sub(r"\b(?:NOME|CPF|CELULAR|EMAIL|SCORE)\s*[:=]?\s*", "", nome_val, flags=re.IGNORECASE)
+    nome_val = _clean_text(re.sub(r"[|/:=-]+$", "", nome_val).strip())
 
     valor = item.get('valor')
     if valor is None and extra.get('valor'):
@@ -700,20 +704,20 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
     lines = []
     lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
-    lines.append(f"💳 Cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
-    lines.append(f"📆 Validade: {stock_data['validade'] if stock_data.get('validade') else '—'}")
-    lines.append(f"🔐 Cvv: {mask_password(stock_data['cvv']) if stock_data.get('cvv') else '***'}")
+    lines.append("✨ Detalhes do cartão")
+    lines.append(f"🎴 cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
+    lines.append(f"📅 mes / ano: {stock_data['validade'] if stock_data.get('validade') else '—'}")
+    lines.append(f"🔒 cvv: ***")
     lines.append("")
-    lines.append(f"🏳️ Bandeira: {stock_data['bandeira'] if stock_data.get('bandeira') else '—'}")
-    lines.append(f"💠 Nível: {stock_data['nivel'] if stock_data.get('nivel') else '—'}")
-    lines.append(f"⚜️ Tipo: {stock_data['tipo'] if stock_data.get('tipo') else '—'}")
-    lines.append(f"🏛️ Banco: {stock_data['banco'] if stock_data.get('banco') else '—'}")
-    lines.append(f"🌍 Pais: {stock_data['pais'] if stock_data.get('pais') else '—'}")
+    lines.append(f"💳 bandeira: {stock_data['bandeira'] if stock_data.get('bandeira') else '—'}")
+    lines.append(f"💠 nível: {stock_data['nivel'] if stock_data.get('nivel') else '—'}")
+    lines.append(f"⚜️ tipo: {stock_data['tipo'] if stock_data.get('tipo') else '—'}")
+    lines.append(f"🏛️ banco: {stock_data['banco'] if stock_data.get('banco') else '—'}")
+    lines.append(f"🌍 pais: {stock_data['pais'] if stock_data.get('pais') else '—'}")
     lines.append("")
-    lines.append("👤Nome:")
+    lines.append("👤 Nome:")
     lines.append(mask_person_name(stock_data['nome']) if stock_data.get('nome') else '—')
-    lines.append("")
-    lines.append("🪪 cpf:")
+    lines.append("📧 cpf:")
     lines.append(mask_cpf(stock_data['cpf']) if stock_data.get('cpf') else '—')
 
     valor = stock_data.get('valor')
@@ -726,10 +730,8 @@ async def show_product_browse(update: Update, context: ContextTypes.DEFAULT_TYPE
         price_val = 0.0
 
     lines.append("")
-    lines.append(f"💰 Valor: R$ {price_val:.2f}")
-    lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
-    lines.append("")
-    lines.append("O conteúdo completo (cartão, cvv, nome, cpf) só é liberado após a confirmação da compra e se houver saldo suficiente.")
+    lines.append(f"💰 Preço: {price_val:.0f} ( saldo )")
+    lines.append(f"💰 Seu saldo: {balance:.2f}")
 
     text = f"📦 {product['name']}\n\n" + "\n".join(lines)
     await render_text(update, context, text, product_browse_keyboard(product_id, index, total))
@@ -770,20 +772,20 @@ async def admin_show_stock_browse(update: Update, context: ContextTypes.DEFAULT_
     lines = []
     lines.append(f"🔎 Mostrando {index + 1} de {total}")
     lines.append("")
-    lines.append(f"💳 Cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
-    lines.append(f"📆 Validade: {stock_data['validade'] if stock_data.get('validade') else '—'}")
-    lines.append("🔐 Cvv: ***")
+    lines.append("✨ Detalhes do cartão")
+    lines.append(f"🎴 cartão: {mask_card_number(stock_data['cartao']) if stock_data.get('cartao') else '—'}")
+    lines.append(f"📅 mes / ano: {stock_data['validade'] if stock_data.get('validade') else '—'}")
+    lines.append("🔒 cvv: ***")
     lines.append("")
-    lines.append(f"🏳️ Bandeira: {stock_data['bandeira'] if stock_data.get('bandeira') else '—'}")
-    lines.append(f"💠 Nível: {stock_data['nivel'] if stock_data.get('nivel') else '—'}")
-    lines.append(f"⚜️ Tipo: {stock_data['tipo'] if stock_data.get('tipo') else '—'}")
-    lines.append(f"🏛️ Banco: {stock_data['banco'] if stock_data.get('banco') else '—'}")
-    lines.append(f"🌍 Pais: {stock_data['pais'] if stock_data.get('pais') else '—'}")
+    lines.append(f"💳 bandeira: {stock_data['bandeira'] if stock_data.get('bandeira') else '—'}")
+    lines.append(f"💠 nível: {stock_data['nivel'] if stock_data.get('nivel') else '—'}")
+    lines.append(f"⚜️ tipo: {stock_data['tipo'] if stock_data.get('tipo') else '—'}")
+    lines.append(f"🏛️ banco: {stock_data['banco'] if stock_data.get('banco') else '—'}")
+    lines.append(f"🌍 pais: {stock_data['pais'] if stock_data.get('pais') else '—'}")
     lines.append("")
-    lines.append("👤Nome:")
+    lines.append("👤 Nome:")
     lines.append(mask_person_name(stock_data['nome']) if stock_data.get('nome') else '—')
-    lines.append("")
-    lines.append("🪪 cpf:")
+    lines.append("📧 cpf:")
     lines.append(mask_cpf(stock_data['cpf']) if stock_data.get('cpf') else '—')
 
     valor = stock_data.get('valor')
@@ -795,8 +797,8 @@ async def admin_show_stock_browse(update: Update, context: ContextTypes.DEFAULT_
         price_val = 0.0
 
     lines.append("")
-    lines.append(f"💰 Valor: R$ {price_val:.2f}")
-    lines.append(f"💰 Seu saldo: R$ {balance:.2f}")
+    lines.append(f"💰 Preço: {price_val:.0f} ( saldo )")
+    lines.append(f"💰 Seu saldo: {balance:.2f}")
 
     await render_text(update, context, "\n".join(lines), admin_stock_keyboard(product_id, index, total))
 
@@ -849,23 +851,23 @@ async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lines = [
         f"✅ Compra concluída: {product['name']}",
         "",
-        f"💳 Cartão: {stock_data['cartao'] or '—'}",
-        f"📆 Validade: {stock_data['validade'] or '—'}",
-        f"🔐 Cvv: {stock_data['cvv'] or '—'}",
+        "✨ Detalhes do cartão",
+        f"🎴 cartão: {stock_data['cartao'] or '—'}",
+        f"📅 mes / ano: {stock_data['validade'] or '—'}",
+        f"🔒 cvv: {stock_data['cvv'] or '—'}",
         "",
-        f"🏳️ Bandeira: {stock_data['bandeira'] or '—'}",
-        f"💠 Nível: {stock_data['nivel'] or '—'}",
-        f"⚜️ Tipo: {stock_data['tipo'] or '—'}",
-        f"🏛️ Banco: {stock_data['banco'] or '—'}",
-        f"🌍 Pais: {stock_data['pais'] or '—'}",
+        f"💳 bandeira: {stock_data['bandeira'] or '—'}",
+        f"💠 nível: {stock_data['nivel'] or '—'}",
+        f"⚜️ tipo: {stock_data['tipo'] or '—'}",
+        f"🏛️ banco: {stock_data['banco'] or '—'}",
+        f"🌍 pais: {stock_data['pais'] or '—'}",
         "",
-        "👤Nome:",
+        "👤 Nome:",
         f"{stock_data['nome'] or '—'}",
-        "",
-        "🪪 cpf:",
+        "📧 cpf:",
         f"{stock_data['cpf'] or '—'}",
         "",
-        f"💰 Valor: R$ {price_val:.2f}",
+        f"💰 Preço: {price_val:.0f} ( saldo )",
         "",
         f"💳 Cartões comprados: {purchases_count}",
         f"💰 Seu saldo: R$ {new_balance:.2f}",

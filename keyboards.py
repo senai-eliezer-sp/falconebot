@@ -52,13 +52,13 @@ def mask_person_name(name: str) -> str:
 
 
 def mask_cpf(cpf: str) -> str:
-    """Mascara um CPF mostrando apenas os 3 últimos dígitos."""
+    """Mascara um CPF no formato ***.***.***.XX (apenas os 2 últimos dígitos visíveis)."""
     if not cpf:
         return ""
     s = ''.join(ch for ch in cpf if ch.isdigit())
-    if len(s) <= 3:
+    if len(s) < 2:
         return '*' * len(s)
-    return '*' * (len(s) - 3) + s[-3:]
+    return f"***.***.***.{s[-2:]}"
 
 
 def main_menu_keyboard():
