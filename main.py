@@ -1214,6 +1214,41 @@ async def cmd_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# Handler de arquivo .txt para restock
+# ---------------------------------------------------------------------------
+
+
+async def handle_txt_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Recebe um arquivo .txt enviado pelo admin e processa os cartões automaticamente."""
+    if not is_admin(update.effective_user.id):
+        return
+
+    doc = update.message.document
+    file_name = doc.file_name or ""
+
+    if not file_name.lower().endswith(".txt"):
+        await update.message.reply_text("⚠️ Apenas arquivos .txt são aceitos.")
+        return
+
+    await update.message.reply_text("⏳ Lendo arquivo, aguarde...")
+
+    try:
+        tg_file = await context.bot.get_file(doc.file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        raw_text = file_bytes.decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.exception("Erro ao baixar arquivo .txt")
+        await update.message.reply_text(f"❌ Não foi possível ler o arquivo: {exc}")
+        return
+
+    if not raw_text.strip():
+        await update.message.reply_text("❌ O arquivo está vazio.")
+        return
+
+    await handle_restock_accounts(update, context, payload=raw_text)
+
+
+# ---------------------------------------------------------------------------
 # Roteador de mensagens de texto (baseado no estado "awaiting")
 # ---------------------------------------------------------------------------
 
@@ -1330,6 +1365,7 @@ def main():
     app.add_handler(CommandHandler("stock", cmd_stock))
     app.add_handler(CallbackQueryHandler(callback_router))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_router))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("txt"), handle_txt_file))
 
     logger.info(f"{BOT_NAME} iniciado.")
     app.run_polling()
